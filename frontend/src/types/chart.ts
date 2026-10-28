@@ -1,4 +1,14 @@
-import type { Severity } from "../config/statusConfig";
+import type { ComponentLifecycleStatus, Severity } from "../config/statusConfig";
+
+export interface LifecycleApiItem {
+  status: ComponentLifecycleStatus;
+  count: number;
+}
+
+export interface VulnerabilityApiItem {
+  severity: Severity;
+  count: number;
+}
 
 export interface DonutSegment {
   label: string;

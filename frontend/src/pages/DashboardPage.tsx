@@ -4,110 +4,124 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DonutSummaryCard } from "../components/dashboard/DonutSummaryCard";
 import { HighestSecurityRisks } from "../components/dashboard/HighestSecurityRisks";
 import { UpcomingEolCard } from "../components/dashboard/UpcomingEolCard";
-import { ProductVersionFilter } from "../components/filters/ProductVersionFilter";
+import { ProductVersionFilter } from "../components/dashboard/ProductVersionFilter";
 
-import { getDashboardData } from "../services/dashboardService";
+import {
+  getDashboardData,
+  getProductVersions,
+} from "../services/dashboardService";
 
-import type { DashboardData } from "../services/dashboardService";
+import type {
+  DashboardData,
+  ProductVersion,
+} from "../types/dashboard";
+
 import type {
   SecurityRisk,
   UpcomingEolItem,
 } from "../types/chart";
 
 import { DEFAULT_PAGE_SIZE } from "../config/applicationConfig";
+import { useApiData } from "../hooks/useApiData";
+
+const SELECTED_VERSION_STORAGE_KEY = "selectedVersion";
+
+function getStoredVersion(): string {
+  const storedVersion = sessionStorage.getItem(
+    SELECTED_VERSION_STORAGE_KEY,
+  );
+
+  if (storedVersion === null || storedVersion === "all") {
+    return "all";
+  }
+
+  const id = Number(storedVersion);
+
+  return Number.isInteger(id) && id > 0
+    ? String(id)
+    : "all";
+}
 
 export function DashboardPage() {
-  const [dashboardData, setDashboardData] =
-    useState<DashboardData | null>(null);
+  const [selectedVersion, setSelectedVersion] =
+    useState<string>(getStoredVersion);
 
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
-
-  const [selectedVersion, setSelectedVersion] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [eolPage, setEolPage] = useState(1);
 
-  const [componentCount, setComponentCount] = useState(0);
+  // Produktversionen unabhängig von den Dashboard-Daten laden.
+  const fetchProductVersions = useCallback(
+    (signal: AbortSignal) => getProductVersions(signal),
+    [],
+  );
 
-  // Dashboard-Daten laden
+  const {
+    data: versions,
+    error: versionsError,
+    isLoading: isLoadingVersions,
+    reload: reloadVersions,
+  } = useApiData<ProductVersion[]>(fetchProductVersions);
+
+  
+  const fetchDashboardData = useCallback(
+    (signal: AbortSignal) =>
+      getDashboardData(selectedVersion, signal),
+    [selectedVersion],
+  );
+
+  const {
+    data: dashboardData,
+    error: loadError,
+    isLoading,
+    reload: reloadDashboard,
+  } = useApiData<DashboardData>(fetchDashboardData);
+
+  // Auswahl für einen erneuten Seitenaufruf speichern.
   useEffect(() => {
-    let isCurrent = true;
-
-    async function loadDashboard() {
-      setIsLoading(true);
-      setLoadError(null);
-
-      try {
-        const data = await getDashboardData(selectedVersion);
-
-        if (isCurrent) {
-          setDashboardData(data);
-          setComponentCount(data.totalComponents);
-        }
-      } catch {
-        if (isCurrent) {
-          setLoadError(
-            "Die Dashboard-Daten konnten nicht geladen werden. Bitte versuche es erneut.",
-          );
-        }
-      } finally {
-        if (isCurrent) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadDashboard();
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [retryCount, selectedVersion]);
-
-  // Erneutes Laden bei einem Fehler
-  const handleRetry = useCallback(() => {
-    setRetryCount((count) => count + 1);
-  }, []);
-
-  // Verfügbare Filteroptionen
-  const versions = useMemo(() => {
-    if (!dashboardData) {
-      return [];
-    }
-
-    return Array.from(
-      new Set(
-        dashboardData.upcomingEol.map(
-          (item) => `${item.component} ${item.version}`,
-        ),
-      ),
-    ).sort((a, b) => a.localeCompare(b));
-  }, [dashboardData]);
-
-  // EOL-Einträge nach Produktversion filtern
-  const filteredEolItems = useMemo(() => {
-    if (!dashboardData) {
-      return [];
-    }
-
-    if (selectedVersion === "all") {
-      return dashboardData.upcomingEol;
-    }
-
-    return dashboardData.upcomingEol.filter(
-      (item) =>
-        `${item.component} ${item.version}` === selectedVersion,
+    sessionStorage.setItem(
+      SELECTED_VERSION_STORAGE_KEY,
+      selectedVersion,
     );
-  }, [dashboardData, selectedVersion]);
+  }, [selectedVersion]);
+
+ 
+  useEffect(() => {
+    if (versions === null) {
+      return;
+    }
+
+    const selectedVersionExists =
+      selectedVersion === "all" ||
+      versions.some(
+        (version) => String(version.id) === selectedVersion,
+      );
+
+    if (!selectedVersionExists) {
+      setSelectedVersion("all");
+      setCurrentPage(1);
+      setEolPage(1);
+    }
+  }, [versions, selectedVersion]);
+
+  // Beide API-Aufrufe erneut ausführen.
+  const handleRetry = useCallback(() => {
+    reloadVersions();
+    reloadDashboard();
+  }, [reloadVersions, reloadDashboard]);
 
   const handleVersionChange = useCallback((version: string) => {
     setSelectedVersion(version);
-    setEolPage(1);
     setCurrentPage(1);
+    setEolPage(1);
   }, []);
 
-  // Sicherheitsrisiken paginieren
+  
+  const filteredEolItems = useMemo(
+    () => dashboardData?.upcomingEol ?? [],
+    [dashboardData],
+  );
+
+  // Sicherheitsrisiken paginieren.
   const risks = useMemo(() => {
     if (!dashboardData) {
       return [];
@@ -121,7 +135,7 @@ export function DashboardPage() {
     );
   }, [dashboardData, currentPage]);
 
-  // EOL-Einträge paginieren
+  // EOL-Einträge paginieren.
   const eolItems = useMemo(() => {
     const startIndex = (eolPage - 1) * DEFAULT_PAGE_SIZE;
 
@@ -131,7 +145,6 @@ export function DashboardPage() {
     );
   }, [filteredEolItems, eolPage]);
 
-  // Details der ausgewählten Sicherheitsrisiken
   const handleViewRiskDetails = useCallback(
     (risk: SecurityRisk) => {
       console.info("Sicherheitsrisiko ausgewählt:", risk);
@@ -139,7 +152,6 @@ export function DashboardPage() {
     [],
   );
 
-  // Details der ausgewählten EOL-Einträge
   const handleViewEolDetails = useCallback(
     (item: UpcomingEolItem) => {
       console.info("EOL-Eintrag ausgewählt:", item);
@@ -147,7 +159,6 @@ export function DashboardPage() {
     [],
   );
 
-  // Summen für die Donut-Diagramme
   const lifecycleTotal = useMemo(
     () =>
       dashboardData?.lifecycle.reduce(
@@ -166,9 +177,18 @@ export function DashboardPage() {
     [dashboardData],
   );
 
+  const selectedVersionLabel =
+    selectedVersion === "all"
+      ? "Alle Versionen"
+      : versions?.find(
+          (version) => String(version.id) === selectedVersion,
+        )?.label ?? `Produktversion ${selectedVersion}`;
+
   return (
-    <main className="mx-auto w-full max-w-screen-2xl space-y-6 p-4 sm:p-6 lg:p-8">
-      {/* Seitenüberschrift und Produktversionsfilter */}
+    <main
+      aria-busy={isLoading}
+      className="mx-auto w-full max-w-screen-2xl space-y-6 p-4 sm:p-6 lg:p-8"
+    >
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
@@ -183,14 +203,32 @@ export function DashboardPage() {
 
         <div className="w-full shrink-0 sm:max-w-xs">
           <ProductVersionFilter
-            versions={versions}
+            versions={versions ?? []}
             value={selectedVersion}
             onChange={handleVersionChange}
           />
+
+          {isLoadingVersions && (
+            <p
+              role="status"
+              className="mt-2 text-sm text-slate-600"
+            >
+              Produktversionen werden geladen …
+            </p>
+          )}
+
+          {versionsError && (
+            <p
+              role="alert"
+              className="mt-2 text-sm text-red-800"
+            >
+              Produktversionen konnten nicht geladen werden:{" "}
+              {versionsError}
+            </p>
+          )}
         </div>
       </header>
 
-      {/* Ladezustand */}
       {isLoading && (
         <div
           role="status"
@@ -201,7 +239,6 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Fehlerzustand */}
       {!isLoading && loadError && (
         <div
           role="alert"
@@ -221,10 +258,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Dashboard-Inhalte */}
       {!isLoading && !loadError && dashboardData && (
         <>
-          {/* KPI: Komponenten */}
           <section
             aria-label="Komponentenkennzahl"
             className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
@@ -247,13 +282,11 @@ export function DashboardPage() {
                     aria-live="polite"
                     aria-atomic="true"
                   >
-                    {componentCount.toLocaleString("de-DE")}
+                    {dashboardData.totalComponents.toLocaleString("de-DE")}
                   </p>
 
                   <p className="mt-2 break-words text-sm text-slate-600">
-                    {selectedVersion === "all"
-                      ? "Alle Versionen"
-                      : selectedVersion}
+                    {selectedVersionLabel}
                   </p>
                 </div>
 
@@ -280,7 +313,6 @@ export function DashboardPage() {
             </article>
           </section>
 
-          {/* Lifecycle- und Schwachstellenübersicht */}
           <section
             aria-label="Lifecycle- und Schwachstellenübersicht"
             className="grid min-w-0 grid-cols-1 items-stretch gap-6 xl:grid-cols-2"
@@ -304,7 +336,6 @@ export function DashboardPage() {
             </div>
           </section>
 
-          {/* Sicherheitsrisiken und bevorstehende Support-Enden */}
           <section
             aria-label="Sicherheitsrisiken und bevorstehende Support-Enden"
             className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2"
@@ -331,19 +362,6 @@ export function DashboardPage() {
               />
             </div>
           </section>
-
-          {/* Hinweis zur Filterwirkung */}
-          {selectedVersion !== "all" && (
-            <p
-              role="note"
-              className="text-sm leading-6 text-slate-700"
-            >
-              Die EOL-Liste und die Komponentenkennzahl beziehen sich
-              auf die ausgewählte Version. Die Lifecycle-Verteilung,
-              die Schwachstellenübersicht und die Sicherheitsrisiken
-              zeigen weiterhin die zusammengefassten Dashboard-Daten.
-            </p>
-          )}
         </>
       )}
     </main>

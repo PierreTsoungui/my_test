@@ -134,7 +134,7 @@ export function HighestSecurityRisks({
         </div>
       )}
 
-   {!isLoading && !error && (
+   {!isLoading && !error && totalItems > 0 && (
     <Pagination
         currentPage={currentPage}
         totalItems={totalItems}

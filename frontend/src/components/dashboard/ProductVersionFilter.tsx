@@ -1,8 +1,9 @@
 
+import type { ProductVersion } from "../../types/dashboard";
 import { SelectField } from "../ui/SelectField";
 
 interface ProductVersionFilterProps {
-  versions: string[];
+  versions: ProductVersion[];
   value: string;
   onChange: (version: string) => void;
 }
@@ -15,8 +16,8 @@ export function ProductVersionFilter({
   const options = [
     { label: "Alle Versionen", value: "all" },
     ...versions.map((version) => ({
-      label: version,
-      value: version,
+      label: version.label,
+      value: version.id.toString(),
     })),
   ];
 
@@ -26,6 +27,7 @@ export function ProductVersionFilter({
       value={value}
       onChange={onChange}
       options={options}
+      disabled={versions.length === 0}
     />
   );
 }
