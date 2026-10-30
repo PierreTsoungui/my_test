@@ -55,14 +55,7 @@ export function useApiData<T>(
               : "Ein unbekannter Fehler ist aufgetreten.",
           isLoading: false,
         }));
-      } finally {
-        if (!controller.signal.aborted) {
-          setState((previous) => ({
-            ...previous,
-            isLoading: false,
-          }));
-        }
-      }
+      } 
     }
 
     void loadData();

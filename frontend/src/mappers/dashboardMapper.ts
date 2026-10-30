@@ -1,8 +1,7 @@
 import type {
-  DonutSegment,
   LifecycleApiItem,
   VulnerabilityApiItem,
-} from "../types/chart";
+} from "../types/dashboard";
 
 import {
   lifecycleColors,
@@ -10,6 +9,7 @@ import {
   severityColors,
   severityLabels,
 } from "../config/statusConfig";
+import type { DonutSegment } from "../types/chart";
 
 export function mapLifecycleData(
   items: LifecycleApiItem[],
