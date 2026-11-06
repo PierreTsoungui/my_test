@@ -1,14 +1,8 @@
 
 
 import type { ComponentLifecycleStatus, Severity } from "../config/statusConfig";
-import type { DonutSegment, SecurityRisk, UpcomingEolItem} from "./chart";
-export interface DashboardData {
-  totalComponents: number;
-  lifecycle: DonutSegment[];
-  vulnerabilities: DonutSegment[];
-  securityRisks: SecurityRisk[];
-  upcomingEol: UpcomingEolItem[];
-}
+import type {DonutSegment} from "./chart";
+
 
 export interface ProductVersion {
   id: number;
@@ -26,18 +20,52 @@ export interface VulnerabilityApiItem {
   count: number;
 }
 
+
 export interface DashboardApiResponse {
   totalComponents: number;
+
   lifecycle: LifecycleApiItem[];
+
   vulnerabilities: VulnerabilityApiItem[];
-  securityRisks: SecurityRisk[];
-  upcomingEol: UpcomingEolItem[];
+
+  actionRequiredGroups: ActionRequiredGroup[];
 }
 
 export interface DashboardData {
   totalComponents: number;
   lifecycle: DonutSegment[];
   vulnerabilities: DonutSegment[];
-  securityRisks: SecurityRisk[];
-  upcomingEol: UpcomingEolItem[];
+  actionRequiredGroups: ActionRequiredGroup[];
+}
+
+
+export interface ActionRequiredGroup {
+  id: string;
+  productName: string;
+  release: string | null;
+  componentCount: number;
+  lifecycle: ActionRequiredLifecycle;
+  vulnerabilities: ActionRequiredVulnerabilities;
+}
+
+export interface ActionRequiredLifecycle {
+  releaseDate: string | null;
+  status: ComponentLifecycleStatus;
+  eoasDate: string | null;
+  eolDate: string | null;
+}
+
+export interface ActionRequiredVulnerabilities {
+  // Anzahl eindeutiger OSV-Schwachstellen
+  totalCount: number;
+
+  // Anzahl unterschiedlicher Komponenten mit mindestens
+  // einer bekannten Schwachstelle
+  affectedComponentCount: number;
+
+  // Anzahl eindeutiger Schwachstellen je Severity
+  severityCounts: Record<Severity, number>;
+  checkedComponentCount?: number;
+  notQueryableComponentCount?: number;
+  failedComponentCount?: number;
 }

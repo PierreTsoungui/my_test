@@ -6,6 +6,7 @@ import {
   Package,
   Database,
   ShieldCheck,
+ ShieldAlert ,
   Menu,
   X,
 } from "lucide-react";
@@ -21,6 +22,12 @@ const navigationItems = [
     label: "Komponenten",
     to: "/components",
     icon: Package,
+    end: false,
+  },
+   {
+    label: "Schwachstellen",
+    to: "/vulnerabilities",
+    icon: ShieldAlert,
     end: false,
   },
   {

@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DonutSummaryCard } from "../components/dashboard/DonutSummaryCard";
-import { HighestSecurityRisks } from "../components/dashboard/HighestSecurityRisks";
-import { UpcomingEolCard } from "../components/dashboard/UpcomingEolCard";
+import { ActionRequiredComponents } from "../components/dashboard/ActionRequiredComponents";
 import { ProductVersionFilter } from "../components/dashboard/ProductVersionFilter";
 
 import {
@@ -12,14 +11,10 @@ import {
 } from "../services/dashboardService";
 
 import type {
+  ActionRequiredGroup,
   DashboardData,
   ProductVersion,
 } from "../types/dashboard";
-
-import type {
-  SecurityRisk,
-  UpcomingEolItem,
-} from "../types/chart";
 
 import { DEFAULT_PAGE_SIZE } from "../config/applicationConfig";
 import { useApiData } from "../hooks/useApiData";
@@ -28,7 +23,7 @@ const SELECTED_VERSION_STORAGE_KEY = "selectedVersion";
 
 function getStoredVersion(): string {
   const storedVersion = sessionStorage.getItem(
-    SELECTED_VERSION_STORAGE_KEY,
+    SELECTED_VERSION_STORAGE_KEY
   );
 
   if (storedVersion === null || storedVersion === "all") {
@@ -47,12 +42,11 @@ export function DashboardPage() {
     useState<string>(getStoredVersion);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [eolPage, setEolPage] = useState(1);
 
   // Produktversionen unabhängig von den Dashboard-Daten laden.
   const fetchProductVersions = useCallback(
     (signal: AbortSignal) => getProductVersions(signal),
-    [],
+    []
   );
 
   const {
@@ -62,11 +56,11 @@ export function DashboardPage() {
     reload: reloadVersions,
   } = useApiData<ProductVersion[]>(fetchProductVersions);
 
-  
+  // Dashboard-Daten abhängig von der ausgewählten Produktversion laden.
   const fetchDashboardData = useCallback(
     (signal: AbortSignal) =>
       getDashboardData(selectedVersion, signal),
-    [selectedVersion],
+    [selectedVersion]
   );
 
   const {
@@ -80,11 +74,11 @@ export function DashboardPage() {
   useEffect(() => {
     sessionStorage.setItem(
       SELECTED_VERSION_STORAGE_KEY,
-      selectedVersion,
+      selectedVersion
     );
   }, [selectedVersion]);
 
- 
+  // Prüfen, ob die gespeicherte Produktversion noch existiert.
   useEffect(() => {
     if (versions === null) {
       return;
@@ -93,13 +87,12 @@ export function DashboardPage() {
     const selectedVersionExists =
       selectedVersion === "all" ||
       versions.some(
-        (version) => String(version.id) === selectedVersion,
+        (version) => String(version.id) === selectedVersion
       );
 
     if (!selectedVersionExists) {
       setSelectedVersion("all");
       setCurrentPage(1);
-      setEolPage(1);
     }
   }, [versions, selectedVersion]);
 
@@ -109,79 +102,63 @@ export function DashboardPage() {
     reloadDashboard();
   }, [reloadVersions, reloadDashboard]);
 
+  // Produktversion wechseln und Pagination zurücksetzen.
   const handleVersionChange = useCallback((version: string) => {
     setSelectedVersion(version);
     setCurrentPage(1);
-    setEolPage(1);
   }, []);
 
-  
-  const filteredEolItems = useMemo(
-    () => dashboardData?.upcomingEol ?? [],
-    [dashboardData],
+  // Alle Handlungsbedarf-Gruppen aus der API-Antwort.
+  const actionRequiredGroups = useMemo(
+    () => dashboardData?.actionRequiredGroups ?? [],
+    [dashboardData]
   );
 
-  // Sicherheitsrisiken paginieren.
-  const risks = useMemo(() => {
-    if (!dashboardData) {
-      return [];
-    }
-
+  // Handlungsbedarf-Gruppen für die aktuelle Seite auswählen.
+  const paginatedActionRequiredGroups = useMemo(() => {
     const startIndex = (currentPage - 1) * DEFAULT_PAGE_SIZE;
 
-    return dashboardData.securityRisks.slice(
+    return actionRequiredGroups.slice(
       startIndex,
-      startIndex + DEFAULT_PAGE_SIZE,
+      startIndex + DEFAULT_PAGE_SIZE
     );
-  }, [dashboardData, currentPage]);
+  }, [actionRequiredGroups, currentPage]);
 
-  // EOL-Einträge paginieren.
-  const eolItems = useMemo(() => {
-    const startIndex = (eolPage - 1) * DEFAULT_PAGE_SIZE;
-
-    return filteredEolItems.slice(
-      startIndex,
-      startIndex + DEFAULT_PAGE_SIZE,
-    );
-  }, [filteredEolItems, eolPage]);
-
-  const handleViewRiskDetails = useCallback(
-    (risk: SecurityRisk) => {
-      console.info("Sicherheitsrisiko ausgewählt:", risk);
+  // Detailansicht vorbereiten.
+  // Später kann hier ein Side Drawer geöffnet werden.
+  const handleViewDetails = useCallback(
+    (group: ActionRequiredGroup) => {
+      console.info("Handlungsbedarf ausgewählt:", group);
     },
-    [],
+    []
   );
 
-  const handleViewEolDetails = useCallback(
-    (item: UpcomingEolItem) => {
-      console.info("EOL-Eintrag ausgewählt:", item);
-    },
-    [],
-  );
-
+  // Lifecycle-Kennzahl für das Donut-Diagramm.
   const lifecycleTotal = useMemo(
     () =>
       dashboardData?.lifecycle.reduce(
         (sum, segment) => sum + segment.value,
-        0,
+        0
       ) ?? 0,
-    [dashboardData],
+    [dashboardData]
   );
 
+  // Schwachstellen-Kennzahl für das Donut-Diagramm.
   const vulnerabilityTotal = useMemo(
     () =>
       dashboardData?.vulnerabilities.reduce(
         (sum, segment) => sum + segment.value,
-        0,
+        0
       ) ?? 0,
-    [dashboardData],
+    [dashboardData]
   );
 
+  // Beschriftung der ausgewählten Produktversion.
   const selectedVersionLabel =
     selectedVersion === "all"
       ? "Alle Versionen"
       : versions?.find(
-          (version) => String(version.id) === selectedVersion,
+          (version) => String(version.id) === selectedVersion
         )?.label ?? `Produktversion ${selectedVersion}`;
 
   return (
@@ -189,6 +166,7 @@ export function DashboardPage() {
       aria-busy={isLoading}
       className="mx-auto w-full max-w-screen-2xl space-y-6 p-4 sm:p-6 lg:p-8"
     >
+      {/* Seitenkopf und Produktversionsfilter */}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
@@ -229,6 +207,7 @@ export function DashboardPage() {
         </div>
       </header>
 
+      {/* Ladezustand */}
       {isLoading && (
         <div
           role="status"
@@ -239,6 +218,7 @@ export function DashboardPage() {
         </div>
       )}
 
+      {/* Fehlerzustand */}
       {!isLoading && loadError && (
         <div
           role="alert"
@@ -258,8 +238,10 @@ export function DashboardPage() {
         </div>
       )}
 
+      {/* Dashboard-Inhalte */}
       {!isLoading && !loadError && dashboardData && (
         <>
+          {/* Komponentenkennzahl */}
           <section
             aria-label="Komponentenkennzahl"
             className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
@@ -313,6 +295,7 @@ export function DashboardPage() {
             </article>
           </section>
 
+          {/* Lifecycle- und Schwachstellenverteilung */}
           <section
             aria-label="Lifecycle- und Schwachstellenübersicht"
             className="grid min-w-0 grid-cols-1 items-stretch gap-6 xl:grid-cols-2"
@@ -328,7 +311,7 @@ export function DashboardPage() {
 
             <div className="min-w-0">
               <DonutSummaryCard
-                title="Offene Schwachstellen nach Schweregrad"
+                title="Schwachstellen nach Schweregrad"
                 data={dashboardData.vulnerabilities}
                 centerLabel="Schwachstellen"
                 total={vulnerabilityTotal}
@@ -336,32 +319,15 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <section
-            aria-label="Sicherheitsrisiken und bevorstehende Support-Enden"
-            className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2"
-          >
-            <div className="min-w-0">
-              <HighestSecurityRisks
-                risks={risks}
-                totalItems={dashboardData.securityRisks.length}
-                currentPage={currentPage}
-                pageSize={DEFAULT_PAGE_SIZE}
-                onPageChange={setCurrentPage}
-                onViewDetails={handleViewRiskDetails}
-              />
-            </div>
-
-            <div className="min-w-0">
-              <UpcomingEolCard
-                items={eolItems}
-                totalItems={filteredEolItems.length}
-                currentPage={eolPage}
-                pageSize={DEFAULT_PAGE_SIZE}
-                onPageChange={setEolPage}
-                onViewDetails={handleViewEolDetails}
-              />
-            </div>
-          </section>
+          {/* Gemeinsame Handlungsbedarf-Tabelle */}
+          <ActionRequiredComponents
+            groups={paginatedActionRequiredGroups}
+            totalItems={actionRequiredGroups.length}
+            currentPage={currentPage}
+            pageSize={DEFAULT_PAGE_SIZE}
+            onPageChange={setCurrentPage}
+            onViewDetails={handleViewDetails}
+          />
         </>
       )}
     </main>
