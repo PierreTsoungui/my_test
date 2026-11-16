@@ -101,3 +101,72 @@ export interface ActionRequiredVulnerabilities {
   notQueryableComponentCount?: number;
   failedComponentCount?: number;
 }
+
+
+
+// ============================================================
+// Produktversionen-Übersicht (Master-Tabelle)
+// ============================================================
+
+/**
+ * Health-Status einer Produktversion.
+ * Abgeleitet vom Backend aus Lifecycle + CVEs.
+ */
+export type ProductVersionHealthStatus =
+  | "CRITICAL"      // EOL erreicht ODER kritische CVE
+  | "ATTENTION"     // EOL ≤ 12 Monate ODER hohe CVE
+  | "HEALTHY";      // Nichts davon
+
+export interface ProductVersionOverview {
+  id: number;
+  label: string;                       // "5.1"
+
+  componentCount: number;              // 248
+
+  healthStatus: ProductVersionHealthStatus;
+
+  /** Verteilung nach Lifecycle-Status (nur > 0) */
+  lifecycleBreakdown: LifecycleApiItem[];// sollte  Normalerweise  für  Donut-Diagramm  verwenden
+  vulnerabilityBreakdown: VulnerabilityApiItem[]; // sollte  Normalerweise  für  Donut-Diagramm  verwenden
+  /** Zahlen für die "Handlung"-Spalte */
+  actionRequired: ProductVersionActionRequiredSummary;
+}
+
+export interface ProductVersionActionRequiredSummary {
+  /** Anzahl Handlungsbedarf-Gruppen insgesamt */
+  totalCount: number;                  // 8
+
+  /** Davon mit mindestens einer kritischen CVE */
+  criticalCveCount: number;            // 2
+
+  /** Anzahl unterschiedlicher betroffener Komponenten */
+  affectedComponentCount: number;
+}
+
+/**
+ * API-Response der Produktversionen-Tabelle (paginiert).
+ */
+export interface ProductVersionOverviewPage {
+  items: ProductVersionOverview[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * Filter/Sortierung für die Tabelle.
+ * Wird im Service als Query-Parameter verwendet.
+ */
+export interface ProductVersionOverviewQuery {
+  status?: ProductVersionHealthStatus | "ALL";
+  search?: string;
+  sort?: ProductVersionOverviewSort;
+  page: number;
+  pageSize: number;
+}
+
+export type ProductVersionOverviewSort =
+  | "health"           // schlechtester Status zuerst
+  | "actionRequired"   // meiste Probleme zuerst
+  | "label"            // Versionsnummer (Standard)
+  | "eol";             // frühestes EOL zuerst
