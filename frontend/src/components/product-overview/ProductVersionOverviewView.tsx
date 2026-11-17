@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import {
   AlertCircle,
   Archive,
@@ -23,7 +23,6 @@ import {
   type CreateProductVersionPayload,
 } from "../product-version-matrix/AddProductVersionModal";
 import { Pagination } from "../ui/Pagination";
-import type { ProductVersion } from "../../types/dashboard";
 import type {
   ProductVersionArchiveState,
   ProductVersionHealthStatus,
@@ -37,19 +36,17 @@ import type {
 interface ProductVersionOverviewViewProps {
   query: ProductVersionOverviewQuery;
   data: ProductVersionOverviewPage | null;
-  availableVersions: ProductVersion[];
   isLoading: boolean;
-  isLoadingAvailableVersions?: boolean;
+  isMutationRunning?: boolean;
   error: string | null;
   actionError: string | null;
   notice: string | null;
-  busyVersionId: number | null;
   onQueryChange: (next: Partial<ProductVersionOverviewQuery>) => void;
   onRetry: () => void;
   onAction: (
     item: ProductVersionOverview,
     action: ProductVersionOverviewAction,
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
   onCreate: (payload: CreateProductVersionPayload) => Promise<void>;
 }
 
@@ -95,10 +92,10 @@ function StatusBadge({ item }: { item: ProductVersionOverview }) {
     <div className="flex min-w-[175px] flex-col items-start gap-1.5">
       <span
         className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-inset ${presentation.className}`}
-        title={presentation.description}
       >
         <StatusIcon size={15} aria-hidden="true" />
         {presentation.label}
+        <span className="sr-only">. {presentation.description}</span>
       </span>
 
       {item.isArchived && (
@@ -150,13 +147,11 @@ const filterControlActive =
 export function ProductVersionOverviewView({
   query,
   data,
-  availableVersions,
   isLoading,
-  isLoadingAvailableVersions = false,
+  isMutationRunning = false,
   error,
   actionError,
   notice,
-  busyVersionId,
   onQueryChange,
   onRetry,
   onAction,
@@ -165,6 +160,7 @@ export function ProductVersionOverviewView({
   const [searchInput, setSearchInput] = useState(query.search);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const filterId = useId();
+  const tableHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     setSearchInput(query.search);
@@ -197,6 +193,31 @@ export function ProductVersionOverviewView({
     });
   }
 
+  async function handleMenuAction(
+    item: ProductVersionOverview,
+    action: ProductVersionOverviewAction,
+    event: MouseEvent<HTMLButtonElement>,
+  ) {
+    const details = event.currentTarget.closest("details");
+    const summary = details?.querySelector("summary");
+    if (details) details.open = false;
+
+    try {
+      const succeeded = await onAction(item, action);
+      if (succeeded === false) {
+        summary?.focus();
+        return;
+      }
+
+      // Die betroffene Zeile kann nach Archivieren/Löschen aus der Tabelle
+      // verschwinden. Der Fokus geht deshalb auf die stabile Tabellenüberschrift.
+      tableHeadingRef.current?.focus();
+    } catch {
+      // Der Aufrufer meldet den Fehler über den globalen Fehlerbereich.
+      summary?.focus();
+    }
+  }
+
   function toggleSort(sortBy: ProductVersionSortBy) {
     const sameColumn = query.sortBy === sortBy;
     const sortOrder = sameColumn
@@ -220,7 +241,11 @@ export function ProductVersionOverviewView({
       : query.sortOrder === "ASC"
         ? ArrowUp
         : ArrowDown;
-
+    const sortTooltip = !isCurrentSort
+        ? undefined
+        : query.sortOrder === "ASC"
+        ? "Aufsteigend sortiert"
+        : "Absteigend sortiert";
     return (
       <button
         type="button"
@@ -228,19 +253,21 @@ export function ProductVersionOverviewView({
         aria-label={`${label} sortieren${
           isCurrentSort
             ? query.sortOrder === "ASC"
-              ? ", aktuell aufsteigend"
-              : ", aktuell absteigend"
+              ? ", Aufsteigend sortiert"
+              : ", Absteigend sortiert"
             : ""
         }`}
         aria-pressed={isCurrentSort}
         className="inline-flex min-h-8 items-center gap-2 rounded text-left font-semibold text-slate-800 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
       >
         {label}
-        <SortIcon
-          size={15}
-          className={isCurrentSort ? "text-blue-800" : "text-slate-500"}
-          aria-hidden="true"
-        />
+        <span title={sortTooltip} className="inline-flex">
+          <SortIcon
+            size={15}
+            className={isCurrentSort ? "text-blue-800" : "text-slate-500"}
+            aria-hidden="true"
+          />
+        </span>
       </button>
     );
   }
@@ -255,10 +282,7 @@ export function ProductVersionOverviewView({
         : "Aktive Produktversionen";
 
   return (
-    <main
-      aria-busy={isLoading}
-      className="mx-auto min-h-[calc(100vh-4rem)] w-full max-w-[1600px] space-y-5 bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8"
-    >
+    <main className="mx-auto min-h-[calc(100vh-4rem)] w-full max-w-[1600px] space-y-5 bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <header>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-800">
           Software Lifecycle &amp; Security
@@ -273,15 +297,8 @@ export function ProductVersionOverviewView({
 
       <AddProductVersionModal
         isOpen={isAddModalOpen}
-        productVersions={availableVersions.map((version) => ({
-          id: String(version.id),
-          name: version.label,
-        }))}
         onClose={() => setIsAddModalOpen(false)}
-        onSubmit={async (payload) => {
-          await onCreate(payload);
-          setIsAddModalOpen(false);
-        }}
+        onSubmit={onCreate}
       />
 
       <section
@@ -293,6 +310,7 @@ export function ProductVersionOverviewView({
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
+            disabled={isMutationRunning}
             aria-haspopup="dialog"
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-700 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
           >
@@ -411,7 +429,7 @@ export function ProductVersionOverviewView({
           </div>
         </div>
 
-        {(actionError || notice || error || isLoadingAvailableVersions) && (
+        {(actionError || notice || error) && (
           <div className="mt-4 space-y-2">
             {actionError && (
               <div
@@ -445,25 +463,30 @@ export function ProductVersionOverviewView({
                 {notice}
               </p>
             )}
-            {isLoadingAvailableVersions && (
-              <p role="status" className="text-sm text-slate-700">
-                Produktversionen für das Anlegen werden geladen …
-              </p>
-            )}
           </div>
         )}
       </section>
 
       <section
         aria-labelledby="product-version-table-title"
+        aria-busy={isLoading}
         className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
       >
         <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <h2 id="product-version-table-title" className="font-semibold text-slate-950">
+          <h2
+            id="product-version-table-title"
+            ref={tableHeadingRef}
+            tabIndex={-1}
+            className="rounded-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+          >
             {archiveHeading}
           </h2>
           <p className="text-sm text-slate-600" aria-live="polite" aria-atomic="true">
-            {total.toLocaleString("de-DE")} {total === 1 ? "Version gefunden" : "Versionen gefunden"}
+            {!data && isLoading
+              ? "Produktversionen werden geladen …"
+              : !data && error
+                ? "Ergebnisliste nicht verfügbar"
+                : `${total.toLocaleString("de-DE")} ${total === 1 ? "Version gefunden" : "Versionen gefunden"}`}
           </p>
         </div>
 
@@ -563,14 +586,28 @@ export function ProductVersionOverviewView({
                     <StatusBadge item={item} />
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <details className="group relative inline-block text-left">
+                    <details
+                      className="group relative inline-block text-left"
+                      onKeyDown={(event) => {
+                        if (event.key !== "Escape") return;
+                        const details = event.currentTarget;
+                        if (!details.open) return;
+                        event.preventDefault();
+                        details.open = false;
+                        details.querySelector("summary")?.focus();
+                      }}
+                    >
                       <summary
                         aria-label={`Aktionen für Produktversion ${item.label}`}
+                        aria-controls={`${filterId}-actions-${item.id}`}
                         className="flex size-10 cursor-pointer list-none items-center justify-center rounded-md border border-slate-400 text-slate-800 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
                       >
                         <MoreHorizontal size={18} aria-hidden="true" />
                       </summary>
-                      <div className="absolute right-0 z-20 mt-2 w-52 rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-lg">
+                      <div
+                        id={`${filterId}-actions-${item.id}`}
+                        className="absolute right-0 z-20 mt-2 w-52 rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-lg"
+                      >
                         <Link
                           to={`/dashboard?productVersionId=${item.id}`}
                           className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700"
@@ -582,11 +619,8 @@ export function ProductVersionOverviewView({
                         {item.isArchived ? (
                           <button
                             type="button"
-                            disabled={busyVersionId === item.id}
-                            onClick={(event) => {
-                              onAction(item, "restore");
-                              event.currentTarget.closest("details")?.removeAttribute("open");
-                            }}
+                            disabled={isMutationRunning}
+                            onClick={(event) => void handleMenuAction(item, "restore", event)}
                             className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700 disabled:opacity-50"
                           >
                             <RotateCcw size={15} aria-hidden="true" />
@@ -595,11 +629,8 @@ export function ProductVersionOverviewView({
                         ) : (
                           <button
                             type="button"
-                            disabled={busyVersionId === item.id}
-                            onClick={(event) => {
-                              onAction(item, "archive");
-                              event.currentTarget.closest("details")?.removeAttribute("open");
-                            }}
+                            disabled={isMutationRunning}
+                            onClick={(event) => void handleMenuAction(item, "archive", event)}
                             className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700 disabled:opacity-50"
                           >
                             <Archive size={15} aria-hidden="true" />
@@ -609,11 +640,8 @@ export function ProductVersionOverviewView({
 
                         <button
                           type="button"
-                          disabled={busyVersionId === item.id}
-                          onClick={(event) => {
-                            onAction(item, "delete");
-                            event.currentTarget.closest("details")?.removeAttribute("open");
-                          }}
+                          disabled={isMutationRunning}
+                          onClick={(event) => void handleMenuAction(item, "delete", event)}
                           className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-red-800 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-700 disabled:opacity-50"
                         >
                           <Trash2 size={15} aria-hidden="true" />
@@ -641,7 +669,6 @@ export function ProductVersionOverviewView({
             pageSize={data?.pageSize ?? query.pageSize}
             onPageChange={(page) => onQueryChange({ page })}
             onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
-            pageSizeOptions={[10, 20, 50, 100]}
             ariaLabel="Produktversionsseiten"
             itemLabel="Produktversionen"
           />

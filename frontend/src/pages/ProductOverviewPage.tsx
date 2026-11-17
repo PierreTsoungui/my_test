@@ -1,8 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { ProductVersionOverviewView } from "../components/product-overview/ProductVersionOverviewView";
 import { useApiData } from "../hooks/useApiData";
-import { getProductVersions } from "../services/dashboardService";
 import {
   archiveProductVersion,
   createProductVersion,
@@ -11,8 +10,11 @@ import {
   restoreProductVersion,
 } from "../services/productVersionOverviewService";
 import type { CreateProductVersionPayload } from "../types/productVersion";
-import type { ProductVersionOverviewQuery, ProductVersionOverviewAction, ProductVersionOverview } from "../types/productVersionOverview";
-
+import type {
+  ProductVersionOverviewQuery,
+  ProductVersionOverviewAction,
+  ProductVersionOverview,
+} from "../types/productVersionOverview";
 
 const INITIAL_QUERY: ProductVersionOverviewQuery = {
   archiveState: "ACTIVE",
@@ -24,11 +26,32 @@ const INITIAL_QUERY: ProductVersionOverviewQuery = {
   pageSize: 10,
 };
 
+function isInitialQuery(query: ProductVersionOverviewQuery): boolean {
+  return (
+    query.archiveState === INITIAL_QUERY.archiveState &&
+    query.status === INITIAL_QUERY.status &&
+    query.search === INITIAL_QUERY.search &&
+    query.sortBy === INITIAL_QUERY.sortBy &&
+    query.sortOrder === INITIAL_QUERY.sortOrder &&
+    query.page === INITIAL_QUERY.page &&
+    query.pageSize === INITIAL_QUERY.pageSize
+  );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback;
+}
+
 export function ProductOverviewPage() {
   const [query, setQuery] = useState(INITIAL_QUERY);
-  const [busyVersionId, setBusyVersionId] = useState<number | null>(null);
+  const [isMutationRunning, setIsMutationRunning] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Schützt auch vor zwei Klicks, bevor React den neuen Zustand gerendert hat.
+  const mutationInProgressRef = useRef(false);
 
   const fetchOverview = useCallback(
     (signal: AbortSignal) => getProductVersionOverview(query, signal),
@@ -36,84 +59,118 @@ export function ProductOverviewPage() {
   );
   const overview = useApiData(fetchOverview);
 
-  const fetchVersions = useCallback(
-    (signal: AbortSignal) => getProductVersions(signal),
+  const handleQueryChange = useCallback(
+    (next: Partial<ProductVersionOverviewQuery>) => {
+      setQuery((current) => ({ ...current, ...next }));
+    },
     [],
   );
-  const versions = useApiData(fetchVersions);
-
-  const handleQueryChange = useCallback((next: Partial<ProductVersionOverviewQuery>) => {
-    setQuery((current) => ({ ...current, ...next }));
-  }, []);
 
   const retry = useCallback(() => {
     overview.reload();
-    versions.reload();
-  }, [overview.reload, versions.reload]);
+  }, [overview.reload]);
 
-  const runAction = useCallback(async (item: ProductVersionOverview, action: ProductVersionOverviewAction) => {
-    if (action === "delete") {
-      const confirmed = window.confirm(
-        `Möchtest du die Produktversion ${item.label} endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
-      );
-      if (!confirmed) return;
-    }
-
-    setBusyVersionId(item.id);
-    setActionError(null);
-    setNotice(null);
-
-    try {
-      if (action === "archive") {
-        await archiveProductVersion(item.id);
-        setNotice(`Produktversion ${item.label} wurde archiviert.`);
-      } else if (action === "restore") {
-        await restoreProductVersion(item.id);
-        setNotice(`Produktversion ${item.label} wurde wiederhergestellt.`);
-      } else {
-        await deleteProductVersion(item.id);
-        setNotice(`Produktversion ${item.label} wurde gelöscht.`);
-      }
-      setQuery((current) => ({ ...current, page: 1 }));
+  const refreshAfterMutation = useCallback(() => {
+    // Eine Änderung der Query löst den Abruf bereits aus. Nur bei Seite 1
+    // muss explizit neu geladen werden.
+    if (query.page === 1) {
       overview.reload();
-      versions.reload();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Die Aktion konnte nicht ausgeführt werden.");
-    } finally {
-      setBusyVersionId(null);
+    } else {
+      setQuery((current) => ({ ...current, page: 1 }));
     }
-  }, [overview.reload, versions.reload]);
+  }, [overview.reload, query.page]);
 
-  const createVersion = useCallback(async (payload: CreateProductVersionPayload) => {
-    await createProductVersion(payload);
-    setNotice(`Produktversion ${payload.name} wurde angelegt.`);
-    setQuery({
-      archiveState: "ACTIVE",
-      status: "ALL",
-      search: "",
-      sortBy: null,
-      sortOrder: "DESC",
-      page: 1,
-      pageSize: 10,
-    });
-    overview.reload();
-    versions.reload();
-  }, [overview.reload, versions.reload]);
+  const runAction = useCallback(
+    async (item: ProductVersionOverview, action: ProductVersionOverviewAction) => {
+      if (mutationInProgressRef.current) return false;
+
+      if (action === "delete") {
+        const confirmed = window.confirm(
+          `Möchtest du die Produktversion ${item.label} endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+        );
+        if (!confirmed) return false;
+      }
+
+      mutationInProgressRef.current = true;
+      setIsMutationRunning(true);
+      setActionError(null);
+      setNotice(null);
+
+      try {
+        if (action === "archive") {
+          await archiveProductVersion(item.id);
+          setNotice(`Produktversion ${item.label} wurde archiviert.`);
+        } else if (action === "restore") {
+          await restoreProductVersion(item.id);
+          setNotice(`Produktversion ${item.label} wurde wiederhergestellt.`);
+        } else {
+          await deleteProductVersion(item.id);
+          setNotice(`Produktversion ${item.label} wurde gelöscht.`);
+        }
+
+        refreshAfterMutation();
+        return true;
+      } catch (error) {
+        setActionError(
+          getErrorMessage(error, "Die Aktion konnte nicht ausgeführt werden."),
+        );
+        return false;
+      } finally {
+        mutationInProgressRef.current = false;
+        setIsMutationRunning(false);
+      }
+    },
+    [refreshAfterMutation],
+  );
+
+  const createVersion = useCallback(
+    async (payload: CreateProductVersionPayload) => {
+      if (mutationInProgressRef.current) {
+          return;
+      }
+
+      mutationInProgressRef.current = true;
+      setIsMutationRunning(true);
+      setActionError(null);
+      setNotice(null);
+
+      try {
+        await createProductVersion(payload);
+        setNotice(`Produktversion ${payload.name} wurde angelegt.`);
+
+        if (isInitialQuery(query)) {
+          overview.reload();
+        } else {
+          setQuery(INITIAL_QUERY);
+        }
+      } catch (error) {
+        const message = getErrorMessage(
+          error,
+          "Die Produktversion konnte nicht erstellt werden.",
+        );
+        // Der Dialog zeigt den Fehler direkt am Formular an. Ein zweiter
+        // globaler Alert würde dieselbe Fehlermeldung doppelt ausgeben.
+        throw new Error(message, { cause: error });
+      } finally {
+        mutationInProgressRef.current = false;
+        setIsMutationRunning(false);
+      }
+    },
+    [overview.reload, query],
+  );
 
   return (
     <ProductVersionOverviewView
       query={query}
       data={overview.data}
-      availableVersions={versions.data ?? []}
       isLoading={overview.isLoading}
-      isLoadingAvailableVersions={versions.isLoading}
       error={overview.error}
       actionError={actionError}
       notice={notice}
-      busyVersionId={busyVersionId}
+      isMutationRunning={isMutationRunning}
       onQueryChange={handleQueryChange}
       onRetry={retry}
-      onAction={(item, action) => void runAction(item, action)}
+      onAction={runAction}
       onCreate={createVersion}
     />
   );
