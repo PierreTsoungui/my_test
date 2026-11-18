@@ -241,11 +241,16 @@ export function ProductVersionOverviewView({
       : query.sortOrder === "ASC"
         ? ArrowUp
         : ArrowDown;
-    const sortTooltip = !isCurrentSort
-        ? undefined
+    const sortTooltip = isCurrentSort
+      ? sortBy === "LABEL"
+        ? query.sortOrder === "ASC"
+          ? "Aufsteigend sortiert (A–Z)"
+          : "Absteigend sortiert (Z–A)"
         : query.sortOrder === "ASC"
-        ? "Aufsteigend sortiert"
-        : "Absteigend sortiert";
+          ? "Aufsteigend sortiert (niedrigste Werte zuerst)"
+          : "Absteigend sortiert (höchste Werte zuerst)"
+      : undefined;
+
     return (
       <button
         type="button"
@@ -253,8 +258,8 @@ export function ProductVersionOverviewView({
         aria-label={`${label} sortieren${
           isCurrentSort
             ? query.sortOrder === "ASC"
-              ? ", Aufsteigend sortiert"
-              : ", Absteigend sortiert"
+              ? ", aktuell aufsteigend"
+              : ", aktuell absteigend"
             : ""
         }`}
         aria-pressed={isCurrentSort}
@@ -302,15 +307,19 @@ export function ProductVersionOverviewView({
       />
 
       <section
-        aria-label="Produktversionen filtern"
+         aria-labelledby={`${filterId}-heading`}
         className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       >
-        {/* Die Überschrift wurde entfernt; die Hauptaktion bleibt rechts oben. */}
-        <div className="flex justify-end">
+       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2
+              id={`${filterId}-heading`}
+               className="text-base font-semibold text-slate-900"
+              >
+             Produktversionen
+          </h2>
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
-            disabled={isMutationRunning}
             aria-haspopup="dialog"
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-700 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
           >
@@ -320,7 +329,7 @@ export function ProductVersionOverviewView({
         </div>
 
         {/* Ab lg werden alle Filter in einer gemeinsamen Zeile dargestellt. */}
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_auto] lg:items-center">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_auto] lg:items-center">
           <div className="sm:col-span-2 lg:col-span-1">
             <label htmlFor={`${filterId}-search`} className="sr-only">
               Nach Produktversion suchen

@@ -10,15 +10,13 @@ interface PaginationProps {
   pageSize: number;
   onPageChange: (page: number) => void;
 
-  // Optional: nur Matrix nutzt das
   onPageSizeChange?: (pageSize: number) => void;
-  pageSizeOptions?: number[];
 
   ariaLabel: string;
   itemLabel?: string;
 }
 
-const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
 /**
  * Baut die Liste der anzuzeigenden Seitenzahlen.
@@ -74,7 +72,6 @@ export function Pagination({
   pageSize,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   ariaLabel,
   itemLabel = "Einträge",
 }: PaginationProps) {
@@ -91,15 +88,16 @@ export function Pagination({
     totalPages,
   );
 
-  if (totalPages <= 1 && !onPageSizeChange) {
-    return null;
-  }
+  if (totalItems === 0 || (totalPages <= 1 && !onPageSizeChange)) {
+  return null;
+}
 
-  const firstItem = (safeCurrentPage - 1) * safePageSize + 1;
-  const lastItem = Math.min(
-    safeCurrentPage * safePageSize,
-    totalItems,
-  );
+  const firstItem = totalItems === 0
+    ? 0
+    : (safeCurrentPage - 1) * safePageSize + 1;
+  const lastItem = totalItems === 0
+    ? 0
+    : Math.min(safeCurrentPage * safePageSize, totalItems);
   const maxVisible = isDesktop ? 5 : 3;
   const pageItems = buildPageItems(
     safeCurrentPage,
@@ -149,7 +147,7 @@ export function Pagination({
               }
               className="min-h-10 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:min-h-9"
             >
-              {pageSizeOptions.map((option) => (
+              {DEFAULT_PAGE_SIZE_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
