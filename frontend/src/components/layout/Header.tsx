@@ -3,10 +3,8 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
-  Package,
   Database,
   ShieldCheck,
- ShieldAlert ,
   Menu,
   X,
 } from "lucide-react";
@@ -18,18 +16,7 @@ const navigationItems = [
     icon: LayoutDashboard,
     end: true,
   },
-  {
-    label: "Komponenten",
-    to: "/components",
-    icon: Package,
-    end: false,
-  },
-   {
-    label: "Schwachstellen",
-    to: "/vulnerabilities",
-    icon: ShieldAlert,
-    end: false,
-  },
+  
   {
     label: "Datenquellen",
     to: "/data-sources",

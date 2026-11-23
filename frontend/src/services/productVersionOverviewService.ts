@@ -1,49 +1,51 @@
-import { apiRequest } from "../config/api";
+import { request } from "../config/api";
 import type {
   ProductVersionOverviewPage,
   ProductVersionOverviewQuery,
 } from "../types/productVersionOverview";
 import type { CreateProductVersionPayload } from "../types/productVersion";
+import type { ProductVersion } from "../types/dashboard";
 
-export function getProductVersionOverview(
+const  PATH_PRODUCT_VERSIONS = "/product-versions";
+export async function getProductVersionOverview(
   query: ProductVersionOverviewQuery,
   signal?: AbortSignal,
 ): Promise<ProductVersionOverviewPage> {
   const params = new URLSearchParams({
     archive_state: query.archiveState,
-    status: query.status,
+    attention_filter: query.attentionFilter,
     search: query.search,
-    sort_by: query.sortBy ?? "",
-    sort_order: query.sortOrder,
     page: String(query.page),
     page_size: String(query.pageSize),
   });
 
-  return apiRequest<ProductVersionOverviewPage>(
-    `/product-versions/overview?${params.toString()}`,
+
+  const response = await request(
+    `${PATH_PRODUCT_VERSIONS}/overview?${params.toString()}`,
     { signal },
   );
+  return response.json() as Promise<ProductVersionOverviewPage>;
 }
 
-export function archiveProductVersion(id: number): Promise<void> {
-  return apiRequest<void>(`/product-versions/${id}/archive`, {
+export async function archiveProductVersion(id: number): Promise<void> {
+      await  request(`${PATH_PRODUCT_VERSIONS}/${id}/archive`, {
     method: "PATCH",
   });
 }
 
-export function restoreProductVersion(id: number): Promise<void> {
-  return apiRequest<void>(`/product-versions/${id}/restore`, {
+export async function restoreProductVersion(id: number): Promise<void> {
+  await request(`${PATH_PRODUCT_VERSIONS}/${id}/restore`, {
     method: "PATCH",
   });
 }
 
-export function deleteProductVersion(id: number): Promise<void> {
-  return apiRequest<void>(`/product-versions/${id}`, {
+export async function deleteProductVersion(id: number): Promise<void> {
+   await request(`${PATH_PRODUCT_VERSIONS}/${id}`, {
     method: "DELETE",
   });
 }
 
-export function createProductVersion(
+export async function createProductVersion(
   payload: CreateProductVersionPayload,
 ): Promise<void> {
   const body = new FormData();
@@ -60,8 +62,15 @@ export function createProductVersion(
     );
   }
 
-  return apiRequest<void>("/product-versions", {
+    await request(`${PATH_PRODUCT_VERSIONS}`, {
     method: "POST",
     body,
   });
 }
+
+
+export async function getProductVersions(signal?: AbortSignal): Promise<ProductVersion[]> {
+   const productVersions = await request(`${PATH_PRODUCT_VERSIONS}`, { signal });
+   return productVersions.json() as Promise<ProductVersion[]>;
+}
+

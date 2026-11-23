@@ -1,8 +1,7 @@
 
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
-import { DashboardPage } from "./pages/OverviewMockPage";
-import { ProductOverviewPage } from "./pages/ProductOverviewPage";
+
 import { OverviewMockPage } from "./pages/OverviewMockPage";
 
 
@@ -12,7 +11,7 @@ function App() {
       <Route element={<AppLayout />}>
        
         {import.meta.env.DEV && <Route path="/" element={<OverviewMockPage />} />}
-        <Route path="/dashboard" element={<DashboardPage />} />
+       
         <Route
           path="/components"
           element={<div className="p-8">Komponenten</div>}

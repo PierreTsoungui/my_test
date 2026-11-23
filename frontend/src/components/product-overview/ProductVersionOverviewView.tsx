@@ -1,11 +1,8 @@
+
 import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import {
   AlertCircle,
   Archive,
-  ArrowDown,
-  ArrowDownUp,
-  ArrowUp,
-  CheckCircle2,
   CircleHelp,
   Eye,
   MoreHorizontal,
@@ -13,7 +10,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldAlert,
   Trash2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -23,9 +19,9 @@ import {
   type CreateProductVersionPayload,
 } from "../product-version-matrix/AddProductVersionModal";
 import { Pagination } from "../ui/Pagination";
+
 import type {
-  ProductVersionArchiveState,
-  ProductVersionHealthStatus,
+  ProductVersionAttentionFilter,
   ProductVersionOverview,
   ProductVersionOverviewAction,
   ProductVersionOverviewPage,
@@ -33,11 +29,15 @@ import type {
   ProductVersionSortBy,
 } from "../../types/productVersionOverview";
 
+// --------------------------------------------------
+// Props
+// --------------------------------------------------
+
 interface ProductVersionOverviewViewProps {
   query: ProductVersionOverviewQuery;
   data: ProductVersionOverviewPage | null;
   isLoading: boolean;
-  isMutationRunning?: boolean;
+  isMutationRunning: boolean;
   error: string | null;
   actionError: string | null;
   notice: string | null;
@@ -50,99 +50,160 @@ interface ProductVersionOverviewViewProps {
   onCreate: (payload: CreateProductVersionPayload) => Promise<void>;
 }
 
-const statusPresentation: Record<
-  ProductVersionHealthStatus,
-  {
-    label: string;
-    className: string;
-    description: string;
-    Icon: typeof ShieldAlert;
+// --------------------------------------------------
+// Shared styles
+// --------------------------------------------------
+
+const controlBase =
+  "min-h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground " +
+  "outline-none transition-colors hover:border-slate-400 focus-visible:border-primary-700 " +
+  "focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-1";
+
+const controlActive =
+  "border-primary-600 bg-primary-50 text-primary-700";
+
+// --------------------------------------------------
+// Helpers
+// --------------------------------------------------
+
+function formatArchiveDate(value: string): string {
+  // Date-only values must not shift to the previous day due to timezone conversion.
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  const date = dateOnlyMatch
+    ? new Date(
+        Number(dateOnlyMatch[1]),
+        Number(dateOnlyMatch[2]) - 1,
+        Number(dateOnlyMatch[3]),
+      )
+    : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
   }
-> = {
-  ACTION_REQUIRED: {
-    label: "Handlungsbedarf",
-    className: "bg-red-50 text-red-900 ring-red-300",
-    description:
-      "Es wurden kritische oder hohe Schwachstellen oder bereits abgelaufene Komponenten erkannt.",
-    Icon: ShieldAlert,
-  },
- 
-  NOT_ASSESSED: {
-    label: "Nicht bewertet",
-    className: "bg-slate-100 text-slate-900 ring-slate-300",
-    description: "Es liegt noch keine ausreichende Risikobewertung vor.",
-    Icon: CircleHelp,
-  },
-  HEALTHY: {
-    label: "Unauffällig",
-    className: "bg-green-50 text-green-900 ring-green-300",
-    description:
-      "Alle erforderlichen Prüfungen sind abgeschlossen und es liegen keine priorisierten Befunde vor.",
-    Icon: CheckCircle2,
-  },
-};
 
-function StatusBadge({ item }: { item: ProductVersionOverview }) {
-  const presentation = item.healthStatus
-    ? statusPresentation[item.healthStatus]
-    : statusPresentation.NOT_ASSESSED;
-  const StatusIcon = presentation.Icon;
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
 
+function hasFindings(item: ProductVersionOverview): boolean {
   return (
-    <div className="flex min-w-[175px] flex-col items-start gap-1.5">
-      <span
-        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-inset ${presentation.className}`}
-      >
-        <StatusIcon size={15} aria-hidden="true" />
-        {presentation.label}
-        <span className="sr-only">. {presentation.description}</span>
-      </span>
-
-      {item.isArchived && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-800 ring-1 ring-inset ring-slate-300">
-          <Archive size={13} aria-hidden="true" />
-          Archiviert
-        </span>
-      )}
-    </div>
+    (item.criticalAffectedComponentCount ?? 0) > 0 ||
+    (item.highAffectedComponentCount ?? 0) > 0 ||
+    (item.eolComponentCount ?? 0) > 0
   );
 }
 
-function CountCell({
-  value,
-  tone,
-}: {
-  value: number;
-  tone: "critical" | "high" | "eol";
-}) {
-  if (value === 0) {
-    return <span className="tabular-nums text-slate-700">0</span>;
+// --------------------------------------------------
+// Small UI components
+// --------------------------------------------------
+
+function ArchivedBadge({ archiveAt }: { archiveAt: string }) {
+  return (
+    <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-surface-muted px-2 py-1 text-xs font-medium text-muted">
+      <Archive size={13} aria-hidden="true" />
+
+      <time dateTime={archiveAt}>
+        Archiviert seit {formatArchiveDate(archiveAt)}
+      </time>
+    </span>
+  );
+}
+
+/**
+ * Displays Critical and High values in their own table columns.
+ *
+ * null means that the corresponding OSV assessment was not performed.
+ * 0 means that the assessment was performed but no affected components
+ * were found.
+ */
+function OsvComponentsCells({ item }: { item: ProductVersionOverview }) {
+  const critical = item.criticalAffectedComponentCount;
+  const high = item.highAffectedComponentCount;
+
+  const notAssessed = critical === null && high === null;
+
+  if (notAssessed) {
+    return (
+      <td
+        colSpan={2}
+        className="px-5 py-4 text-center text-sm text-muted"
+      >
+        Nicht bewertet
+      </td>
+    );
   }
 
-  const dotClass = {
-    critical: "bg-red-700",
-    high: "bg-orange-600",
-    eol: "bg-amber-700",
-  }[tone];
+  return (
+    <>
+      <td className="px-5 py-4 text-center align-middle">
+        <span
+          className={`font-semibold tabular-nums ${
+            critical !== null && critical > 0
+              ? "text-critical-700"
+              : "text-muted"
+          }`}
+        >
+          {critical === null ? "—" : critical.toLocaleString("de-DE")}
+        </span>
+      </td>
+
+      <td className="px-5 py-4 text-center align-middle">
+        <span
+          className={`font-semibold tabular-nums ${
+            high !== null && high > 0
+              ? "text-high-700"
+              : "text-muted"
+          }`}
+        >
+          {high === null ? "—" : high.toLocaleString("de-DE")}
+        </span>
+      </td>
+    </>
+  );
+}
+
+function EolComponentsCell({ value }: { value: number | null }) {
+  if (value === null) {
+    return (
+      <span className="text-sm text-muted">
+        Nicht bewertet
+      </span>
+    );
+  }
 
   return (
-    <span className="inline-flex items-center gap-2 tabular-nums">
-      <span className={`size-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
+    <span className="text-lg font-semibold tabular-nums text-foreground">
       {value.toLocaleString("de-DE")}
     </span>
   );
 }
 
-const filterControlBase =
-  "min-h-11 w-full rounded-lg border px-3 text-sm text-slate-950 " +
-  "outline-none transition-colors focus-visible:ring-2 " +
-  "focus-visible:ring-blue-700 focus-visible:ring-offset-2";
+// --------------------------------------------------
+// Filter options
+// --------------------------------------------------
 
-const filterControlDefault =
-  "border-slate-400 bg-white hover:border-slate-600";
+const attentionFilterOptions: Array<{
+  value: ProductVersionAttentionFilter;
+  label: string;
+}> = [
+  { value: "ALL", label: "Alle" },
+  { value: "EOL", label: "Mit EOL-Komponenten" },
+  {
+    value: "OSV_AFFECTED_COMPONENTS",
+    label: "Mit betroffenen OSV-Komponenten",
+  },
+  { value: "HEALTHY", label: "Keine Auffälligkeiten" },
+  { value: "EOL_NOT_ASSESSED", label: "EOL nicht bewertet" },
+  { value: "OSV_NOT_ASSESSED", label: "OSV nicht bewertet" },
+];
 
-const filterControlActive =
-  "border-blue-700 bg-blue-50 font-semibold text-blue-950";
+// --------------------------------------------------
+// Main component
+// --------------------------------------------------
 
 export function ProductVersionOverviewView({
   query,
@@ -157,10 +218,16 @@ export function ProductVersionOverviewView({
   onAction,
   onCreate,
 }: ProductVersionOverviewViewProps) {
+  // Local UI state
   const [searchInput, setSearchInput] = useState(query.search);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
   const filterId = useId();
   const tableHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  // --------------------------------------------------
+  // Search synchronization
+  // --------------------------------------------------
 
   useEffect(() => {
     setSearchInput(query.search);
@@ -169,26 +236,62 @@ export function ProductVersionOverviewView({
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const normalizedSearch = searchInput.trim();
+
       if (normalizedSearch !== query.search) {
-        onQueryChange({ search: normalizedSearch, page: 1 });
+        onQueryChange({
+          search: normalizedSearch,
+          page: 1,
+        });
       }
     }, 300);
 
     return () => window.clearTimeout(timeoutId);
   }, [searchInput, query.search, onQueryChange]);
 
-  const isSearchActive = searchInput.trim().length > 0;
-  const isStatusActive = query.status !== "ALL";
-  const isArchiveActive = query.archiveState !== "ACTIVE";
-  const hasActiveFilters =
-    isSearchActive || isStatusActive || isArchiveActive;
+  // --------------------------------------------------
+  // Derived UI state
+  // --------------------------------------------------
 
-  function resetFilters() {
+  const isSearchActive = searchInput.trim().length > 0;
+  const isAttentionFilterActive = query.attentionFilter !== "ALL";
+  const isArchiveFilterActive = query.archiveState !== "ACTIVE";
+  const isSortActive = query.sortBy !== null;
+
+  const hasActiveControls =
+    isSearchActive ||
+    isAttentionFilterActive ||
+    isArchiveFilterActive ||
+    isSortActive;
+
+  const rows = data?.items ?? [];
+  const total = data?.total ?? 0;
+
+  const archiveHeading =
+    query.archiveState === "ARCHIVED"
+      ? "Archivierte Produktversionen"
+      : query.archiveState === "ALL"
+        ? "Alle Produktversionen"
+        : "Aktive Produktversionen";
+
+  // --------------------------------------------------
+  // Event handlers
+  // --------------------------------------------------
+
+  function resetControls() {
     setSearchInput("");
+
     onQueryChange({
       archiveState: "ACTIVE",
-      status: "ALL",
+      attentionFilter: "ALL",
       search: "",
+      sortBy: null,
+      page: 1,
+    });
+  }
+
+  function handleSortChange(sortBy: ProductVersionSortBy | null) {
+    onQueryChange({
+      sortBy,
       page: 1,
     });
   }
@@ -200,105 +303,52 @@ export function ProductVersionOverviewView({
   ) {
     const details = event.currentTarget.closest("details");
     const summary = details?.querySelector("summary");
-    if (details) details.open = false;
+
+    if (details) {
+      details.open = false;
+    }
 
     try {
       const succeeded = await onAction(item, action);
+
       if (succeeded === false) {
         summary?.focus();
         return;
       }
 
-      // Die betroffene Zeile kann nach Archivieren/Löschen aus der Tabelle
-      // verschwinden. Der Fokus geht deshalb auf die stabile Tabellenüberschrift.
+      // The row may disappear after an archive or delete action.
+      // Move focus to a stable heading.
       tableHeadingRef.current?.focus();
     } catch {
-      // Der Aufrufer meldet den Fehler über den globalen Fehlerbereich.
+      // The caller displays the error in the shared error area.
       summary?.focus();
     }
   }
 
-  function toggleSort(sortBy: ProductVersionSortBy) {
-    const sameColumn = query.sortBy === sortBy;
-    const sortOrder = sameColumn
-      ? query.sortOrder === "ASC"
-        ? "DESC"
-        : "ASC"
-      : sortBy === "LABEL"
-        ? "ASC"
-        : "DESC";
-
-    onQueryChange({ sortBy, sortOrder, page: 1 });
-  }
-
-  function renderSortButton(
-    label: string,
-    sortBy: ProductVersionSortBy,
-  ) {
-    const isCurrentSort = query.sortBy === sortBy;
-    const SortIcon = !isCurrentSort
-      ? ArrowDownUp
-      : query.sortOrder === "ASC"
-        ? ArrowUp
-        : ArrowDown;
-    const sortTooltip = isCurrentSort
-      ? sortBy === "LABEL"
-        ? query.sortOrder === "ASC"
-          ? "Aufsteigend sortiert (A–Z)"
-          : "Absteigend sortiert (Z–A)"
-        : query.sortOrder === "ASC"
-          ? "Aufsteigend sortiert (niedrigste Werte zuerst)"
-          : "Absteigend sortiert (höchste Werte zuerst)"
-      : undefined;
-
-    return (
-      <button
-        type="button"
-        onClick={() => toggleSort(sortBy)}
-        aria-label={`${label} sortieren${
-          isCurrentSort
-            ? query.sortOrder === "ASC"
-              ? ", aktuell aufsteigend"
-              : ", aktuell absteigend"
-            : ""
-        }`}
-        aria-pressed={isCurrentSort}
-        className="inline-flex min-h-8 items-center gap-2 rounded text-left font-semibold text-slate-800 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
-      >
-        {label}
-        <span title={sortTooltip} className="inline-flex">
-          <SortIcon
-            size={15}
-            className={isCurrentSort ? "text-blue-800" : "text-slate-500"}
-            aria-hidden="true"
-          />
-        </span>
-      </button>
-    );
-  }
-
-  const rows = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const archiveHeading =
-    query.archiveState === "ARCHIVED"
-      ? "Archivierte Produktversionen"
-      : query.archiveState === "ALL"
-        ? "Alle Produktversionen"
-        : "Aktive Produktversionen";
+  // --------------------------------------------------
+  // Render
+  // --------------------------------------------------
 
   return (
-    <main className="mx-auto min-h-[calc(100vh-4rem)] w-full max-w-[1600px] space-y-5 bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
+    <main className="mx-auto min-h-[calc(100vh-4rem)] w-full max-w-[1440px] space-y-6 bg-page px-4 py-6 text-foreground sm:px-6 lg:px-8">
+
+      {/* Page heading */}
+
       <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-800">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-700">
           Software Lifecycle &amp; Security
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Produktüberblick
         </h1>
-        <p className="mt-1 text-sm text-slate-700">
-          Produktversionen verwalten und technische Risiken erkennen.
+
+        <p className="mt-1 text-sm text-muted">
+          Produktversionen vergleichen und Auffälligkeiten erkennen.
         </p>
       </header>
+
+      {/* Add product version modal */}
 
       <AddProductVersionModal
         isOpen={isAddModalOpen}
@@ -306,383 +356,611 @@ export function ProductVersionOverviewView({
         onSubmit={onCreate}
       />
 
+      {/* Product version overview */}
+
       <section
-         aria-labelledby={`${filterId}-heading`}
-        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+        aria-labelledby={`${filterId}-section-title`}
+        className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
       >
-       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2
-              id={`${filterId}-heading`}
-               className="text-base font-semibold text-slate-900"
-              >
-             Produktversionen
-          </h2>
-          <button
-            type="button"
-            onClick={() => setIsAddModalOpen(true)}
-            aria-haspopup="dialog"
-            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-700 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
-          >
-            <Plus size={18} aria-hidden="true" />
-            Neue Produktversion
-          </button>
-        </div>
 
-        {/* Ab lg werden alle Filter in einer gemeinsamen Zeile dargestellt. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_auto] lg:items-center">
-          <div className="sm:col-span-2 lg:col-span-1">
-            <label htmlFor={`${filterId}-search`} className="sr-only">
-              Nach Produktversion suchen
-            </label>
-            <div className="relative">
-              <Search
-                size={17}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600"
-                aria-hidden="true"
-              />
-              <input
-                id={`${filterId}-search`}
-                type="search"
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.currentTarget.value)}
-                placeholder="Suche nach Version …"
-                autoComplete="off"
-                className={`${filterControlBase} pl-10 pr-3 placeholder:text-slate-600 ${
-                  isSearchActive ? filterControlActive : filterControlDefault
-                }`}
-              />
-            </div>
-          </div>
+        {/* Filters */}
 
-          <div className="relative">
-            <label htmlFor={`${filterId}-status`} className="sr-only">
-              Produktversionen nach Bewertung filtern
-            </label>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-sm font-medium text-slate-700"
-            >
-              Status:
-            </span>
-            <select
-              id={`${filterId}-status`}
-              value={query.status}
-              onChange={(event) =>
-                onQueryChange({
-                  status: event.currentTarget.value as ProductVersionOverviewQuery["status"],
-                  page: 1,
-                })
-              }
-              className={`${filterControlBase} appearance-none pl-[4.5rem] pr-10 ${
-                isStatusActive ? filterControlActive : filterControlDefault
-              }`}
-            >
-              <option value="ALL">Alle</option>
-              <option value="ACTION_REQUIRED">Handlungsbedarf</option>
-              <option value="HEALTHY">Unauffällig</option>
-              <option value="NOT_ASSESSED">Nicht bewertet</option>
-            </select>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-600"
-            >
-              ▾
-            </span>
-          </div>
+        <div className="p-4 sm:p-5">
 
-          <div className="relative">
-            <label htmlFor={`${filterId}-archive`} className="sr-only">
-               Anzuzeigende Produktversionen auswählen
-            </label>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-sm font-medium text-slate-700"
-            >
-              Ansicht:
-            </span>
-            <select
-              id={`${filterId}-archive`}
-              value={query.archiveState}
-              onChange={(event) =>
-                onQueryChange({
-                  archiveState: event.currentTarget.value as ProductVersionArchiveState,
-                  page: 1,
-                })
-              }
-              className={`${filterControlBase} appearance-none pl-[4.25rem] pr-10 ${
-                isArchiveActive ? filterControlActive : filterControlDefault
-              }`}
-            >
-              <option value="ACTIVE">Nur aktive</option>
-              <option value="ARCHIVED">Nur archivierte</option>
-              <option value="ALL">Alle</option>
-            </select>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-600"
-            >
-              ▾
-            </span>
-          </div>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
-          <div className="sm:col-span-2 lg:col-span-1 lg:justify-self-end">
+            <h2
+              id={`${filterId}-section-title`}
+              className="text-base font-semibold text-foreground"
+            >
+              Produktversionen
+            </h2>
+
             <button
               type="button"
-              onClick={resetFilters}
-              disabled={!hasActiveFilters}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-blue-800 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto lg:whitespace-nowrap"
+              onClick={() => setIsAddModalOpen(true)}
+              aria-haspopup="dialog"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
             >
-              <RefreshCw size={16} aria-hidden="true" />
-              Filter zurücksetzen
+              <Plus size={17} aria-hidden="true" />
+              Neue Produktversion
             </button>
+
           </div>
+
+          {/* Search and filter controls */}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(15rem,1.5fr)_minmax(12rem,1fr)_minmax(11rem,0.9fr)_minmax(13rem,1.1fr)_auto] xl:items-end">
+
+            {/* Search */}
+
+            <div>
+              <label
+                htmlFor={`${filterId}-search`}
+                className="mb-1.5 block text-xs font-medium text-muted"
+              >
+                Suche
+              </label>
+
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  aria-hidden="true"
+                />
+
+                <input
+                  id={`${filterId}-search`}
+                  type="search"
+                  value={searchInput}
+                  onChange={(event) =>
+                    setSearchInput(event.currentTarget.value)
+                  }
+                  placeholder="Produktversion suchen …"
+                  autoComplete="off"
+                  className={`${controlBase} pl-9 ${
+                    isSearchActive ? controlActive : ""
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Attention filter */}
+
+            <div>
+              <label
+                htmlFor={`${filterId}-attention`}
+                className="mb-1.5 block text-xs font-medium text-muted"
+              >
+                Auffälligkeit
+              </label>
+
+              <select
+                id={`${filterId}-attention`}
+                value={query.attentionFilter}
+                onChange={(event) =>
+                  onQueryChange({
+                    attentionFilter: event.currentTarget
+                      .value as ProductVersionAttentionFilter,
+                    page: 1,
+                  })
+                }
+                className={`${controlBase} ${
+                  isAttentionFilterActive ? controlActive : ""
+                }`}
+              >
+                {attentionFilterOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Archive filter */}
+
+            <div>
+              <label
+                htmlFor={`${filterId}-archive`}
+                className="mb-1.5 block text-xs font-medium text-muted"
+              >
+                Ansicht
+              </label>
+
+              <select
+                id={`${filterId}-archive`}
+                value={query.archiveState}
+                onChange={(event) =>
+                  onQueryChange({
+                    archiveState: event.currentTarget
+                      .value as ProductVersionOverviewQuery["archiveState"],
+                    page: 1,
+                  })
+                }
+                className={`${controlBase} ${
+                  isArchiveFilterActive ? controlActive : ""
+                }`}
+              >
+                <option value="ACTIVE">Aktive Versionen</option>
+                <option value="ARCHIVED">Archivierte Versionen</option>
+                <option value="ALL">Alle Versionen</option>
+              </select>
+            </div>
+
+            {/* Sorting */}
+
+            <div>
+              <label
+                htmlFor={`${filterId}-sort`}
+                className="mb-1.5 block text-xs font-medium text-muted"
+              >
+                Sortierung
+              </label>
+
+              <select
+                id={`${filterId}-sort`}
+                value={query.sortBy ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+
+                  handleSortChange(
+                    value === "" ? null : (value as ProductVersionSortBy),
+                  );
+                }}
+                className={`${controlBase} ${
+                  isSortActive ? controlActive : ""
+                }`}
+              >
+                <option value="">Version (neueste zuerst)</option>
+                <option value="EOL_COMPONENT_COUNT">
+                  EOL-Komponenten zuerst
+                </option>
+                <option value="VULNERABILITY_SEVERITY">
+                  Critical-/High-Komponenten zuerst
+                </option>
+              </select>
+            </div>
+
+            {/* Reset */}
+
+            <button
+              type="button"
+              onClick={resetControls}
+              disabled={!hasActiveControls}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2 xl:col-span-1"
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              Zurücksetzen
+            </button>
+
+          </div>
+
+          {/* Notifications and errors */}
+
+          {(actionError || notice || error) && (
+            <div className="mt-4 space-y-2">
+
+              {actionError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+                >
+                  <AlertCircle
+                    size={17}
+                    className="mt-0.5 shrink-0"
+                    aria-hidden="true"
+                  />
+
+                  <span>{actionError}</span>
+                </div>
+              )}
+
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+                >
+                  <span>{error}</span>
+
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="min-h-9 shrink-0 rounded px-2 font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                  >
+                    Erneut versuchen
+                  </button>
+                </div>
+              )}
+
+              {notice && (
+                <p
+                  role="status"
+                  className="rounded-lg border border-green-200 bg-success-50 p-3 text-sm text-success-700"
+                >
+                  {notice}
+                </p>
+              )}
+
+            </div>
+          )}
+
         </div>
 
-        {(actionError || notice || error) && (
-          <div className="mt-4 space-y-2">
-            {actionError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
-              >
-                <AlertCircle size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
-                <span>{actionError}</span>
-              </div>
-            )}
-            {error && (
-              <div
-                role="alert"
-                className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
-              >
-                <span>{error}</span>
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  className="min-h-9 shrink-0 rounded px-2 font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
-                >
-                  Erneut versuchen
-                </button>
-              </div>
-            )}
-            {notice && (
-              <p
-                role="status"
-                className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900"
-              >
-                {notice}
-              </p>
-            )}
-          </div>
-        )}
-      </section>
+        {/* Table heading and result count */}
 
-      <section
-        aria-labelledby="product-version-table-title"
-        aria-busy={isLoading}
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-      >
-        <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <h2
-            id="product-version-table-title"
+        <div className="flex flex-col gap-1 border-y border-border bg-surface-muted/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+
+          <h3
+            id={`${filterId}-table-title`}
             ref={tableHeadingRef}
             tabIndex={-1}
-            className="rounded-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+            className="rounded-sm text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
           >
             {archiveHeading}
-          </h2>
-          <p className="text-sm text-slate-600" aria-live="polite" aria-atomic="true">
-            {!data && isLoading
-              ? "Produktversionen werden geladen …"
-              : !data && error
-                ? "Ergebnisliste nicht verfügbar"
-                : `${total.toLocaleString("de-DE")} ${total === 1 ? "Version gefunden" : "Versionen gefunden"}`}
-          </p>
+          </h3>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+
+            <p
+              className="text-sm text-muted"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {!data && isLoading
+                ? "Produktversionen werden geladen …"
+                : !data && error
+                  ? "Ergebnisliste nicht verfügbar"
+                  : `${total.toLocaleString("de-DE")} ${
+                      total === 1
+                        ? "Version gefunden"
+                        : "Versionen gefunden"
+                    }`}
+            </p>
+
+            <span className="inline-flex items-center gap-2 text-xs text-muted">
+              <span
+                aria-hidden="true"
+                className="h-4 w-1 rounded-full bg-slate-400"
+              />
+              Mindestens eine Auffälligkeit
+            </span>
+
+          </div>
+
         </div>
 
+        {/* Product version table */}
+
         <div
-          className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700"
+          className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
           role="region"
           aria-label="Produktversionstabelle; bei schmalen Bildschirmen horizontal scrollbar"
           tabIndex={0}
+          aria-busy={isLoading}
         >
+
           <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left">
+
             <caption className="sr-only">
-              Produktversionen mit kritischen und hohen Schwachstellen, EOL-Komponenten, Status und Aktionen.
+              Produktversionen mit betroffenen OSV-Komponenten und EOL-Komponenten
             </caption>
+
+            <colgroup>
+              <col className="w-[36%]" />
+              <col className="w-[12%]" />
+              <col className="w-[12%]" />
+              <col className="w-[22%]" />
+              <col className="w-[18%]" />
+            </colgroup>
+
+            {/* One consistent header row */}
+
             <thead>
-              <tr className="bg-slate-50 text-xs text-slate-800">
+              <tr className="bg-surface-muted text-xs font-semibold text-muted">
+
                 <th
                   scope="col"
-                  aria-sort={query.sortBy === "LABEL" ? (query.sortOrder === "ASC" ? "ascending" : "descending") : "none"}
-                  className="border-b border-slate-200 px-4 py-3"
+                  className="whitespace-nowrap border-b border-border px-5 py-4 text-left align-middle"
                 >
-                  {renderSortButton("Produktversion", "LABEL")}
+                  Produktversion
                 </th>
+
                 <th
                   scope="col"
-                  aria-sort={query.sortBy === "CRITICAL_CVE_COUNT" ? (query.sortOrder === "ASC" ? "ascending" : "descending") : "none"}
-                  className="border-b border-slate-200 px-4 py-3"
+                  className="whitespace-nowrap border-b border-border px-5 py-4 text-center align-middle"
+                  title="Anzahl betroffener Komponenten mit Critical-Schwachstellen"
                 >
-                  {renderSortButton("Kritische CVEs", "CRITICAL_CVE_COUNT")}
+                  <span className="text-critical-700">
+                    Critical
+                  </span>
+
+                  <span className="ml-1 font-normal normal-case text-muted">
+                    (OSV)
+                  </span>
                 </th>
+
                 <th
                   scope="col"
-                  aria-sort={query.sortBy === "HIGH_CVE_COUNT" ? (query.sortOrder === "ASC" ? "ascending" : "descending") : "none"}
-                  className="border-b border-slate-200 px-4 py-3"
+                  className="whitespace-nowrap border-b border-border px-5 py-4 text-center align-middle"
+                  title="Anzahl betroffener Komponenten mit High-Schwachstellen"
                 >
-                  {renderSortButton("Hohe CVEs", "HIGH_CVE_COUNT")}
+                  <span className="text-high-700">
+                    High
+                  </span>
+
+                  <span className="ml-1 font-normal normal-case text-muted">
+                    (OSV)
+                  </span>
                 </th>
+
                 <th
                   scope="col"
-                  aria-sort={query.sortBy === "EOL_COMPONENT_COUNT" ? (query.sortOrder === "ASC" ? "ascending" : "descending") : "none"}
-                  className="border-b border-slate-200 px-4 py-3"
+                  className="whitespace-nowrap border-b border-border px-5 py-4 text-left align-middle"
+                  title="Anzahl der Komponenten, deren Lebenszyklusende erreicht wurde"
                 >
-                  {renderSortButton("EOL-Komponenten", "EOL_COMPONENT_COUNT")}
+                  EOL-Komponenten
                 </th>
-                <th scope="col" className="border-b border-slate-200 px-4 py-3">
-                  Status
-                </th>
-                <th scope="col" className="border-b border-slate-200 px-4 py-3 text-right">
+
+                <th
+                  scope="col"
+                  className="whitespace-nowrap border-b border-border px-5 py-4 text-right align-middle"
+                >
                   Aktionen
                 </th>
+
               </tr>
             </thead>
+
+            {/* Table body */}
+
             <tbody className="divide-y divide-slate-100">
+
+              {/* Loading */}
+
               {isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-700">
+                  <td
+                    colSpan={5}
+                    className="px-5 py-14 text-center text-sm text-muted"
+                  >
                     Produktversionen werden geladen …
                   </td>
                 </tr>
               )}
 
+              {/* Empty result */}
+
               {!isLoading && !error && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td
+                    colSpan={5}
+                    className="px-5 py-14 text-center"
+                  >
                     <div className="mx-auto flex max-w-md flex-col items-center">
-                      <CircleHelp size={28} className="text-slate-600" aria-hidden="true" />
-                      <p className="mt-3 text-sm font-medium text-slate-950">
+
+                      <CircleHelp
+                        size={27}
+                        className="text-slate-400"
+                        aria-hidden="true"
+                      />
+
+                      <p className="mt-3 text-sm font-medium text-foreground">
                         {query.archiveState === "ARCHIVED"
                           ? "Keine archivierten Produktversionen vorhanden."
                           : "Keine passenden Produktversionen gefunden."}
                       </p>
-                     
+
                     </div>
                   </td>
                 </tr>
               )}
 
-              {rows.map((item) => (
-                <tr key={item.id} className="bg-white transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-4">
-                    <Link
-                      to={`/dashboard?productVersionId=${item.id}`}
-                      className="rounded-sm font-semibold text-blue-800 underline-offset-4 hover:text-blue-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
-                    >
-                      {item.label}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-950">
-                    <CountCell value={item.criticalCveCount} tone="critical" />
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-950">
-                    <CountCell value={item.highCveCount} tone="high" />
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-950">
-                    <CountCell value={item.eolComponentCount} tone="eol" />
-                  </td>
-                  <td className="px-4 py-4">
-                    <StatusBadge item={item} />
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <details
-                      className="group relative inline-block text-left"
-                      onKeyDown={(event) => {
-                        if (event.key !== "Escape") return;
-                        const details = event.currentTarget;
-                        if (!details.open) return;
-                        event.preventDefault();
-                        details.open = false;
-                        details.querySelector("summary")?.focus();
-                      }}
-                    >
-                      <summary
-                        aria-label={`Aktionen für Produktversion ${item.label}`}
-                        aria-controls={`${filterId}-actions-${item.id}`}
-                        className="flex size-10 cursor-pointer list-none items-center justify-center rounded-md border border-slate-400 text-slate-800 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
-                      >
-                        <MoreHorizontal size={18} aria-hidden="true" />
-                      </summary>
-                      <div
-                        id={`${filterId}-actions-${item.id}`}
-                        className="absolute right-0 z-20 mt-2 w-52 rounded-lg border border-slate-200 bg-white p-1.5 text-left shadow-lg"
-                      >
-                        <Link
-                          to={`/dashboard?productVersionId=${item.id}`}
-                          className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700"
-                        >
-                          <Eye size={15} aria-hidden="true" />
-                          Details anzeigen
-                        </Link>
+              {/* Product version rows */}
 
-                        {item.isArchived ? (
-                          <button
-                            type="button"
-                            disabled={isMutationRunning}
-                            onClick={(event) => void handleMenuAction(item, "restore", event)}
-                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700 disabled:opacity-50"
-                          >
-                            <RotateCcw size={15} aria-hidden="true" />
-                            Wiederherstellen
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isMutationRunning}
-                            onClick={(event) => void handleMenuAction(item, "archive", event)}
-                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-700 disabled:opacity-50"
-                          >
-                            <Archive size={15} aria-hidden="true" />
-                            Archivieren
-                          </button>
-                        )}
+              {rows.map((item) => {
+                const itemHasFindings = hasFindings(item);
 
-                        <button
-                          type="button"
-                          disabled={isMutationRunning}
-                          onClick={(event) => void handleMenuAction(item, "delete", event)}
-                          className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-red-800 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-700 disabled:opacity-50"
-                        >
-                          <Trash2 size={15} aria-hidden="true" />
-                          Löschen
-                        </button>
+                return (
+                  <tr
+                    key={item.id}
+                    className="bg-surface transition-colors hover:bg-surface-muted/70"
+                  >
+
+                    {/* Product version */}
+
+                    <td className="px-5 py-4 align-middle">
+
+                      <div className="flex items-center gap-3">
+
+                        <span
+                          aria-hidden="true"
+                          className={`h-8 w-1 shrink-0 rounded-full ${
+                            itemHasFindings
+                              ? "bg-slate-400"
+                              : "bg-transparent"
+                          }`}
+                        />
+
+                        <div className="min-w-0">
+
+                          <Link
+                            to={`/dashboard?productVersionId=${item.id}`}
+                            className="rounded-sm font-semibold text-primary-700 underline-offset-4 hover:text-blue-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+                          >
+                            {item.label}
+                          </Link>
+
+                          {item.archivedAt && (
+                            <ArchivedBadge archiveAt={item.archivedAt} />
+                          )}
+
+                        </div>
+
                       </div>
-                    </details>
-                  </td>
-                </tr>
-              ))}
+
+                    </td>
+
+                    {/* Critical and High OSV components */}
+
+                    <OsvComponentsCells item={item} />
+
+                    {/* EOL components */}
+
+                    <td className="px-5 py-4 align-middle">
+                      <EolComponentsCell value={item.eolComponentCount} />
+                    </td>
+
+                    {/* Actions */}
+
+                    <td className="px-5 py-4 text-right align-middle">
+
+                      <details
+                        className="group relative inline-block text-left"
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape") {
+                            return;
+                          }
+
+                          const details = event.currentTarget;
+
+                          if (!details.open) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          details.open = false;
+                          details.querySelector("summary")?.focus();
+                        }}
+                      >
+
+                        <summary
+                          aria-label={`Aktionen für Produktversion ${item.label}`}
+                          aria-controls={`${filterId}-actions-${item.id}`}
+                          className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md border border-border text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+                        >
+                          <MoreHorizontal
+                            size={18}
+                            aria-hidden="true"
+                          />
+                        </summary>
+
+                        <div
+                          id={`${filterId}-actions-${item.id}`}
+                          className="absolute right-0 z-20 mt-2 w-52 rounded-lg border border-border bg-surface p-1.5 text-left shadow-lg"
+                        >
+
+                          {/* Details */}
+
+                          <Link
+                            to={`/dashboard?productVersionId=${item.id}`}
+                            className="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
+                          >
+                            <Eye size={15} aria-hidden="true" />
+                            Details ansehen
+                          </Link>
+
+                          {/* Restore or archive */}
+
+                          {item.archivedAt ? (
+                            <button
+                              type="button"
+                              disabled={isMutationRunning}
+                              onClick={(event) =>
+                                void handleMenuAction(
+                                  item,
+                                  "restore",
+                                  event,
+                                )
+                              }
+                              className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 disabled:opacity-50"
+                            >
+                              <RotateCcw size={15} aria-hidden="true" />
+                              Wiederherstellen
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isMutationRunning}
+                              onClick={(event) =>
+                                void handleMenuAction(
+                                  item,
+                                  "archive",
+                                  event,
+                                )
+                              }
+                              className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 disabled:opacity-50"
+                            >
+                              <Archive size={15} aria-hidden="true" />
+                              Archivieren
+                            </button>
+                          )}
+
+                          {/* Delete */}
+
+                          <button
+                            type="button"
+                            disabled={isMutationRunning}
+                            onClick={(event) =>
+                              void handleMenuAction(
+                                item,
+                                "delete",
+                                event,
+                              )
+                            }
+                            className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-700 disabled:opacity-50"
+                          >
+                            <Trash2 size={15} aria-hidden="true" />
+                            Löschen
+                          </button>
+
+                        </div>
+
+                      </details>
+
+                    </td>
+
+                  </tr>
+                );
+              })}
+
             </tbody>
+
           </table>
+
         </div>
 
+        {/* Loading indicator when existing rows are being refreshed */}
+
         {isLoading && rows.length > 0 && (
-          <p className="px-4 pt-2 text-xs text-slate-700" role="status">
+          <p
+            className="px-5 pt-2 text-xs text-muted"
+            role="status"
+          >
             Ergebnisse werden aktualisiert …
           </p>
         )}
 
-        <div className="px-4 pb-4 pt-3 sm:px-5">
+        {/* Pagination */}
+
+        <div className="border-t border-border px-4 py-3 sm:px-5">
           <Pagination
             currentPage={data?.page ?? query.page}
             totalItems={total}
             pageSize={data?.pageSize ?? query.pageSize}
             onPageChange={(page) => onQueryChange({ page })}
-            onPageSizeChange={(pageSize) => onQueryChange({ pageSize, page: 1 })}
+            onPageSizeChange={(pageSize) =>
+              onQueryChange({
+                pageSize,
+                page: 1,
+              })
+            }
             ariaLabel="Produktversionsseiten"
             itemLabel="Produktversionen"
           />
         </div>
+
       </section>
+
     </main>
   );
 }

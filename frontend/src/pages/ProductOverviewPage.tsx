@@ -14,14 +14,16 @@ import type {
   ProductVersionOverviewQuery,
   ProductVersionOverviewAction,
   ProductVersionOverview,
+
 } from "../types/productVersionOverview";
+
+
 
 const INITIAL_QUERY: ProductVersionOverviewQuery = {
   archiveState: "ACTIVE",
-  status: "ALL",
+  attentionFilter: "ALL",
   search: "",
-  sortBy: null,
-  sortOrder: "DESC",
+  sortBy: "EOL_COMPONENT_COUNT",
   page: 1,
   pageSize: 10,
 };
@@ -29,10 +31,9 @@ const INITIAL_QUERY: ProductVersionOverviewQuery = {
 function isInitialQuery(query: ProductVersionOverviewQuery): boolean {
   return (
     query.archiveState === INITIAL_QUERY.archiveState &&
-    query.status === INITIAL_QUERY.status &&
+    query.attentionFilter === INITIAL_QUERY.attentionFilter &&
     query.search === INITIAL_QUERY.search &&
     query.sortBy === INITIAL_QUERY.sortBy &&
-    query.sortOrder === INITIAL_QUERY.sortOrder &&
     query.page === INITIAL_QUERY.page &&
     query.pageSize === INITIAL_QUERY.pageSize
   );
@@ -126,7 +127,7 @@ export function ProductOverviewPage() {
   const createVersion = useCallback(
     async (payload: CreateProductVersionPayload) => {
       if (mutationInProgressRef.current) {
-          return;
+        throw new Error("Es wird bereits eine andere Änderung ausgeführt. Bitte versuche es erneut.");
       }
 
       mutationInProgressRef.current = true;

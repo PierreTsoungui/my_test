@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_APPLICATION } from "../../config/applicationConfig";
 import { useApiData } from "../../hooks/useApiData";
-import { getProductVersions } from "../../services/dashboardService";
+import { getProductVersions } from "../../services/productVersionOverviewService";
 import type {
   CreateProductVersionPayload,
   ProductVersionCreationMethod,

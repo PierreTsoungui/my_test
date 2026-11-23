@@ -12,10 +12,9 @@ import type {
 
 const INITIAL_QUERY: ProductVersionOverviewQuery = {
   archiveState: "ACTIVE",
-  status: "ALL",
+  attentionFilter:"EOL",
   search: "",
   sortBy: null,
-  sortOrder: "DESC",
   page: 1,
   pageSize: 10,
 };
@@ -61,11 +60,9 @@ export function OverviewMockPage() {
     const newItem: ProductVersionOverview = {
       id: nextId,
       label: payload.name,
-      criticalCveCount: 0,
-      highCveCount: 0,
+      criticalAffectedComponentCount: 0,
+      highAffectedComponentCount: 0,
       eolComponentCount: 0,
-      healthStatus: "NOT_ASSESSED",
-      isArchived: false,
     };
     setInventory((current) => [newItem, ...current]);
     setQuery(INITIAL_QUERY);
@@ -82,6 +79,7 @@ export function OverviewMockPage() {
         query={query}
         data={page}
         isLoading={false}
+        isMutationRunning={false}
         error={null}
         actionError={actionError}
         notice={notice}

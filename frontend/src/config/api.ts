@@ -1,19 +1,21 @@
 const API_BASE_URL = "/api";
 
-export async function apiRequest<T>(
+ export async function request(
   endpoint: string,
   options?: RequestInit,
-): Promise<T> {
+): Promise<Response> {
   const response = await fetch(
     `${API_BASE_URL}${endpoint}`,
     options,
   );
 
   if (!response.ok) {
+    const errorData = await response.json();
+
     throw new Error(
-      `API request failed: ${response.status} ${response.statusText}`,
+      errorData.detail ?? "Ein unbekannter Fehler ist aufgetreten.",
     );
   }
 
-  return response.json() as Promise<T>;
+  return response;
 }

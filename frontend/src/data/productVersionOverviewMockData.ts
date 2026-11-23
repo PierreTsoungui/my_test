@@ -1,138 +1,134 @@
 import type { ProductVersion } from "../types/dashboard";
 import type { ProductVersionOverview } from "../types/productVersionOverview";
 
-/** UI fixtures only. Never import this module into production UI components or API services. */
 export const PRODUCT_VERSION_OVERVIEW_MOCK_DATA: ProductVersionOverview[] = [
+  // OSV und EOL bewertet, Auffälligkeiten in beiden Quellen
   {
     id: 114,
     label: "5.1.0",
-    criticalCveCount: 2,
-    highCveCount: 5,
+    criticalAffectedComponentCount: 2,
+    highAffectedComponentCount: 5,
     eolComponentCount: 3,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
   {
     id: 113,
     label: "5.0.0",
-    criticalCveCount: 0,
-    highCveCount: 8,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 8,
     eolComponentCount: 12,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
   {
     id: 112,
     label: "4.9.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 3,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
   {
     id: 111,
     label: "4.8.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 7,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
+
+  // Vollständig bewertet, keine Auffälligkeiten
   {
     id: 110,
     label: "4.7.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 0,
-    healthStatus: "HEALTHY",
-    isArchived: false,
   },
+
+  // Unterschiedliche OSV- und EOL-Auffälligkeiten
   {
     id: 109,
     label: "4.6.0",
-    criticalCveCount: 1,
-    highCveCount: 2,
+    criticalAffectedComponentCount: 1,
+    highAffectedComponentCount: 2,
     eolComponentCount: 1,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
   {
     id: 108,
     label: "4.5.0",
-    criticalCveCount: 0,
-    highCveCount: 4,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 4,
     eolComponentCount: 0,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
   {
     id: 107,
     label: "4.4.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 2,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
   },
+
+  // Weder OSV noch EOL bewertet
   {
     id: 106,
     label: "4.3.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
-    eolComponentCount: 0,
-    healthStatus: "NOT_ASSESSED",
-    isArchived: false,
+    criticalAffectedComponentCount: null,
+    highAffectedComponentCount: null,
+    eolComponentCount: null,
   },
+
+  // OSV bewertet, EOL noch nicht bewertet
   {
     id: 105,
     label: "4.2.0",
-    criticalCveCount: 0,
-    highCveCount: 1,
-    eolComponentCount: 0,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: false,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 1,
+    eolComponentCount: null,
   },
+
+  // Ebenfalls vollständig bewertet und ohne Auffälligkeiten
   {
     id: 104,
     label: "4.1.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 0,
-    healthStatus: "HEALTHY",
-    isArchived: false,
   },
+
+  // Archivierte Produktversion mit EOL-Auffälligkeit
   {
     id: 103,
     label: "4.0.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 3,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: true,
+    archivedAt: "2026-10-15T09:30:00+02:00",
   },
+
+  // Archivierte Produktversion ohne Auffälligkeiten
   {
     id: 102,
     label: "3.9.0",
-    criticalCveCount: 0,
-    highCveCount: 0,
+    criticalAffectedComponentCount: 0,
+    highAffectedComponentCount: 0,
     eolComponentCount: 0,
-    healthStatus: "HEALTHY",
-    isArchived: true,
+    archivedAt: "2026-08-12T14:00:00+02:00",
   },
+
+  // OSV noch nicht bewertet, EOL bereits ausgewertet
   {
     id: 101,
     label: "3.8.0",
-    criticalCveCount: 0,
-    highCveCount: 2,
+    criticalAffectedComponentCount: null,
+    highAffectedComponentCount: null,
     eolComponentCount: 1,
-    healthStatus: "ACTION_REQUIRED",
-    isArchived: true,
   },
 ];
 
+/**
+ * Abgeleitete Produktversionsdaten für bestehende Mock-Detailansichten.
+ */
 export const PRODUCT_VERSION_OVERVIEW_MOCK_VERSIONS: ProductVersion[] =
-  PRODUCT_VERSION_OVERVIEW_MOCK_DATA.map(({ id, label }) => ({ id, label }));
+  PRODUCT_VERSION_OVERVIEW_MOCK_DATA.map(({ id, label }) => ({
+    id,
+    label,
+  }));
 
 /** Three-month warning horizon used by the mock detail view. */
 export const PRODUCT_VERSION_OVERVIEW_MOCK_EOL_WARNING_DAYS = 90;

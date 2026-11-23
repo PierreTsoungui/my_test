@@ -1,51 +1,55 @@
-export type ProductVersionHealthStatus =
-  | "ACTION_REQUIRED"
-  | "NOT_ASSESSED"
-  | "HEALTHY";
-
 
 export type ProductVersionArchiveState =
   | "ALL"
   | "ACTIVE"
   | "ARCHIVED";
 
-export type ProductVersionStatusFilter =
+
+/**
+ * Filtert Produktversionen nach ihren Auffälligkeiten
+ * und dem Bewertungsstand der Datenquellen.
+ */
+export type ProductVersionAttentionFilter =
   | "ALL"
-  | "ACTION_REQUIRED"
+  | "EOL"
   | "HEALTHY"
-  | "NOT_ASSESSED";
+  | "OSV_AFFECTED_COMPONENTS"
+  | "EOL_NOT_ASSESSED"
+  | "OSV_NOT_ASSESSED";
 
+
+/**
+ * Priorisiert Produktversionen nach Lifecycle
+ * oder Schwere der OSV-Schwachstellen.
+ */
 export type ProductVersionSortBy =
-  | "LABEL"
-  | "CRITICAL_CVE_COUNT"
-  | "HIGH_CVE_COUNT"
   | "EOL_COMPONENT_COUNT"
-  
+  | "VULNERABILITY_SEVERITY";
 
-export type SortOrder = "ASC" | "DESC";
 
 export interface ProductVersionOverviewQuery {
   archiveState: ProductVersionArchiveState;
-  status: ProductVersionStatusFilter;
+  attentionFilter: ProductVersionAttentionFilter;
   search: string;
-  sortBy: ProductVersionSortBy|null;
-  sortOrder: SortOrder;
+
+  sortBy: ProductVersionSortBy | null;
+
   page: number;
   pageSize: number;
 }
+
 
 export interface ProductVersionOverview {
   id: number;
   label: string;
 
-  criticalCveCount: number;
-  highCveCount: number;
-  eolComponentCount: number;
+  criticalAffectedComponentCount: number | null;
+  highAffectedComponentCount: number | null;
+  eolComponentCount: number | null;
 
-  healthStatus: ProductVersionHealthStatus;
-
-  isArchived: boolean;
+  archivedAt?: string;
 }
+
 
 export interface ProductVersionOverviewPage {
   items: ProductVersionOverview[];
@@ -53,6 +57,7 @@ export interface ProductVersionOverviewPage {
   page: number;
   pageSize: number;
 }
+
 
 export type ProductVersionOverviewAction =
   | "archive"
