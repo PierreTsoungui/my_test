@@ -1,5 +1,12 @@
 
-import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
 import {
   AlertCircle,
   Archive,
@@ -7,7 +14,6 @@ import {
   Eye,
   MoreHorizontal,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   Trash2,
@@ -55,12 +61,15 @@ interface ProductVersionOverviewViewProps {
 // --------------------------------------------------
 
 const controlBase =
-  "min-h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground " +
+  "min-h-10 w-full rounded-lg border border-border bg-surface px-3 font-sans text-sm font-normal text-foreground " +
   "outline-none transition-colors hover:border-slate-400 focus-visible:border-primary-700 " +
   "focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-1";
 
 const controlActive =
   "border-primary-600 bg-primary-50 text-primary-700";
+
+const selectOptionBase =
+  "bg-surface font-sans text-sm font-normal text-foreground";
 
 // --------------------------------------------------
 // Helpers
@@ -194,7 +203,7 @@ const attentionFilterOptions: Array<{
   { value: "EOL", label: "Mit EOL-Komponenten" },
   {
     value: "OSV_AFFECTED_COMPONENTS",
-    label: "Mit betroffenen OSV-Komponenten",
+    label: "Mit High-/Critical-Komponenten",
   },
   { value: "HEALTHY", label: "Keine Auffälligkeiten" },
   { value: "EOL_NOT_ASSESSED", label: "EOL nicht bewertet" },
@@ -221,6 +230,7 @@ export function ProductVersionOverviewView({
   // Local UI state
   const [searchInput, setSearchInput] = useState(query.search);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null);
 
   const filterId = useId();
   const tableHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -233,20 +243,26 @@ export function ProductVersionOverviewView({
     setSearchInput(query.search);
   }, [query.search]);
 
+  // Close the currently open action disclosure when the user clicks elsewhere.
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const normalizedSearch = searchInput.trim();
+    if (openActionMenuId === null) {
+      return;
+    }
 
-      if (normalizedSearch !== query.search) {
-        onQueryChange({
-          search: normalizedSearch,
-          page: 1,
-        });
+    function handleOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+
+      if (!(target instanceof Element) || !target.closest("[data-action-menu]")) {
+        setOpenActionMenuId(null);
       }
-    }, 300);
+    }
 
-    return () => window.clearTimeout(timeoutId);
-  }, [searchInput, query.search, onQueryChange]);
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+    };
+  }, [openActionMenuId]);
 
   // --------------------------------------------------
   // Derived UI state
@@ -256,12 +272,6 @@ export function ProductVersionOverviewView({
   const isAttentionFilterActive = query.attentionFilter !== "ALL";
   const isArchiveFilterActive = query.archiveState !== "ACTIVE";
   const isSortActive = query.sortBy !== null;
-
-  const hasActiveControls =
-    isSearchActive ||
-    isAttentionFilterActive ||
-    isArchiveFilterActive ||
-    isSortActive;
 
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -273,20 +283,17 @@ export function ProductVersionOverviewView({
         ? "Alle Produktversionen"
         : "Aktive Produktversionen";
 
-  // --------------------------------------------------
-  // Event handlers
-  // --------------------------------------------------
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-  function resetControls() {
-    setSearchInput("");
+    const normalizedSearch = searchInput.trim();
 
-    onQueryChange({
-      archiveState: "ACTIVE",
-      attentionFilter: "ALL",
-      search: "",
-      sortBy: null,
-      page: 1,
-    });
+    if (normalizedSearch !== query.search) {
+      onQueryChange({
+        search: normalizedSearch,
+        page: 1,
+      });
+    }
   }
 
   function handleSortChange(sortBy: ProductVersionSortBy | null) {
@@ -304,9 +311,7 @@ export function ProductVersionOverviewView({
     const details = event.currentTarget.closest("details");
     const summary = details?.querySelector("summary");
 
-    if (details) {
-      details.open = false;
-    }
+    setOpenActionMenuId(null);
 
     try {
       const succeeded = await onAction(item, action);
@@ -402,12 +407,20 @@ export function ProductVersionOverviewView({
                 Suche
               </label>
 
-              <div className="relative">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  aria-hidden="true"
-                />
+              <form
+                role="search"
+                aria-label="Produktversionen suchen"
+                onSubmit={handleSearchSubmit}
+                className="relative"
+              >
+                <button
+                  type="submit"
+                  aria-label="Suche starten"
+                  title="Suche starten"
+                  className="absolute left-1 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-1"
+                >
+                  <Search size={17} aria-hidden="true" />
+                </button>
 
                 <input
                   id={`${filterId}-search`}
@@ -418,11 +431,11 @@ export function ProductVersionOverviewView({
                   }
                   placeholder="Produktversion suchen …"
                   autoComplete="off"
-                  className={`${controlBase} pl-9 ${
+                  className={`${controlBase} pl-11 ${
                     isSearchActive ? controlActive : ""
                   }`}
                 />
-              </div>
+              </form>
             </div>
 
             {/* Attention filter */}
@@ -450,7 +463,11 @@ export function ProductVersionOverviewView({
                 }`}
               >
                 {attentionFilterOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    className={selectOptionBase}
+                  >
                     {option.label}
                   </option>
                 ))}
@@ -481,9 +498,15 @@ export function ProductVersionOverviewView({
                   isArchiveFilterActive ? controlActive : ""
                 }`}
               >
-                <option value="ACTIVE">Aktive Versionen</option>
-                <option value="ARCHIVED">Archivierte Versionen</option>
-                <option value="ALL">Alle Versionen</option>
+                <option value="ACTIVE" className={selectOptionBase}>
+                  Aktive Versionen
+                </option>
+                <option value="ARCHIVED" className={selectOptionBase}>
+                  Archivierte Versionen
+                </option>
+                <option value="ALL" className={selectOptionBase}>
+                  Alle Versionen
+                </option>
               </select>
             </div>
 
@@ -511,27 +534,21 @@ export function ProductVersionOverviewView({
                   isSortActive ? controlActive : ""
                 }`}
               >
-                <option value="">Version (neueste zuerst)</option>
-                <option value="EOL_COMPONENT_COUNT">
+                <option value="" className={selectOptionBase}>
+                  Version (neueste zuerst)
+                </option>
+                <option value="EOL_COMPONENT_COUNT" className={selectOptionBase}>
                   EOL-Komponenten zuerst
                 </option>
-                <option value="VULNERABILITY_SEVERITY">
+                <option
+                  value="VULNERABILITY_SEVERITY"
+                  className={selectOptionBase}
+                >
                   Critical-/High-Komponenten zuerst
                 </option>
               </select>
             </div>
 
-            {/* Reset */}
-
-            <button
-              type="button"
-              onClick={resetControls}
-              disabled={!hasActiveControls}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2 xl:col-span-1"
-            >
-              <RefreshCw size={15} aria-hidden="true" />
-              Zurücksetzen
-            </button>
 
           </div>
 
@@ -759,6 +776,7 @@ export function ProductVersionOverviewView({
 
               {rows.map((item) => {
                 const itemHasFindings = hasFindings(item);
+                const isArchived = Boolean(item.archivedAt);
 
                 return (
                   <tr
@@ -790,7 +808,7 @@ export function ProductVersionOverviewView({
                             {item.label}
                           </Link>
 
-                          {item.archivedAt && (
+                          {isArchived && item.archivedAt && (
                             <ArchivedBadge archiveAt={item.archivedAt} />
                           )}
 
@@ -815,27 +833,44 @@ export function ProductVersionOverviewView({
                     <td className="px-5 py-4 text-right align-middle">
 
                       <details
+                        open={openActionMenuId === item.id}
+                        data-action-menu
                         className="group relative inline-block text-left"
-                        onKeyDown={(event) => {
-                          if (event.key !== "Escape") {
-                            return;
+                        onBlur={(event) => {
+                          const nextTarget = event.relatedTarget;
+
+                          if (
+                            !(nextTarget instanceof Node) ||
+                            !event.currentTarget.contains(nextTarget)
+                          ) {
+                            setOpenActionMenuId((currentId) =>
+                              currentId === item.id ? null : currentId,
+                            );
                           }
-
-                          const details = event.currentTarget;
-
-                          if (!details.open) {
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== "Escape" ||
+                            !event.currentTarget.open
+                          ) {
                             return;
                           }
 
                           event.preventDefault();
-                          details.open = false;
-                          details.querySelector("summary")?.focus();
+                          setOpenActionMenuId(null);
+                          event.currentTarget.querySelector("summary")?.focus();
                         }}
                       >
 
                         <summary
                           aria-label={`Aktionen für Produktversion ${item.label}`}
                           aria-controls={`${filterId}-actions-${item.id}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setOpenActionMenuId((currentId) =>
+                              currentId === item.id ? null : item.id,
+                            );
+                          }}
                           className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md border border-border text-muted transition-colors hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
                         >
                           <MoreHorizontal
@@ -853,6 +888,7 @@ export function ProductVersionOverviewView({
 
                           <Link
                             to={`/dashboard?productVersionId=${item.id}`}
+                            onClick={() => setOpenActionMenuId(null)}
                             className="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
                           >
                             <Eye size={15} aria-hidden="true" />
@@ -861,7 +897,7 @@ export function ProductVersionOverviewView({
 
                           {/* Restore or archive */}
 
-                          {item.archivedAt ? (
+                          {isArchived ? (
                             <button
                               type="button"
                               disabled={isMutationRunning}
@@ -897,21 +933,23 @@ export function ProductVersionOverviewView({
 
                           {/* Delete */}
 
-                          <button
-                            type="button"
-                            disabled={isMutationRunning}
-                            onClick={(event) =>
-                              void handleMenuAction(
-                                item,
-                                "delete",
-                                event,
-                              )
-                            }
-                            className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-700 disabled:opacity-50"
-                          >
-                            <Trash2 size={15} aria-hidden="true" />
-                            Löschen
-                          </button>
+                          {isArchived && (
+                            <button
+                              type="button"
+                              disabled={isMutationRunning}
+                              onClick={(event) =>
+                                void handleMenuAction(
+                                  item,
+                                  "delete",
+                                  event,
+                                )
+                              }
+                              className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-700 disabled:opacity-50"
+                            >
+                              <Trash2 size={15} aria-hidden="true" />
+                              Löschen
+                            </button>
+                          )}
 
                         </div>
 

@@ -18,7 +18,7 @@ const navigationItems = [
   },
   
   {
-    label: "Datenquellen",
+    label: "Aktualisierung",
     to: "/data-sources",
     icon: Database,
     end: false,
