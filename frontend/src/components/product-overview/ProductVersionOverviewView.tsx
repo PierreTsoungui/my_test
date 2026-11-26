@@ -4,7 +4,7 @@ import {
   useId,
   useRef,
   useState,
-  type FormEvent,
+  type SyntheticEvent,
   type MouseEvent,
 } from "react";
 import {
@@ -283,7 +283,7 @@ export function ProductVersionOverviewView({
         ? "Alle Produktversionen"
         : "Aktive Produktversionen";
 
-  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSearchSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const normalizedSearch = searchInput.trim();
